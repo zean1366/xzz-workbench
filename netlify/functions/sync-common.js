@@ -1,38 +1,42 @@
 // 飞书同步公共工具（Netlify Functions 版本）
 // 直接调用飞书开放平台 API，不依赖 lark-cli
+//
+// 环境变量配置：
+//   FEISHU_APP_ID        - 飞书应用 ID
+//   FEISHU_APP_SECRET    - 飞书应用 Secret
+//   FEISHU_TABLE_CONFIG  - 各模块表配置（JSON 字符串格式）
+//
+// FEISHU_TABLE_CONFIG 示例：
+// {
+//   "todo": { "baseToken": "xxx", "tableId": "tblxxx" },
+//   "weeklylearn": { "baseToken": "xxx", "tableId": "tblxxx" },
+//   "money": { "baseToken": "xxx", "tableId": "tblxxx" },
+//   "period": { "baseToken": "xxx", "tableId": "tblxxx" },
+//   "quickshop": {
+//     "moodToTable": {
+//       "会员消费": { "baseToken": "xxx", "tableId": "tblxxx" },
+//       ...
+//     }
+//   }
+// }
 
 const FEISHU_APP_ID = process.env.FEISHU_APP_ID;
 const FEISHU_APP_SECRET = process.env.FEISHU_APP_SECRET;
 
-// 各模块的飞书表配置（与 sync-config.js 保持一致）
-const TABLE_CONFIG = {
-  todo: {
-    baseToken: '***REMOVED***',
-    tableId: 'tblk9ZmG5gZ6GzAp',
-  },
-  weeklylearn: {
-    baseToken: '***REMOVED***',
-    tableId: 'tblmOCrN9uBGg6j6',
-  },
-  money: {
-    baseToken: '***REMOVED***',
-    tableId: 'tbll92KhuL7rv0Ei',
-  },
-  period: {
-    baseToken: '***REMOVED***',
-    tableId: 'tbl0Zeqld4vYxGLw',
-  },
-  quickshop: {
-    moodToTable: {
-      '会员消费': { baseToken: '***REMOVED***', tableId: 'tblcMmuUPotPNlRx' },
-      '会员储值': { baseToken: '***REMOVED***', tableId: 'tblXnlsb3uyFUUT5' },
-      '散客消费': { baseToken: '***REMOVED***', tableId: 'tblTEVLqh7T35Qwx' },
-      '门店支出': { baseToken: '***REMOVED***', tableId: 'tblNfD83KujasBDN' },
-      '赠送礼品': { baseToken: '***REMOVED***', tableId: 'tbl8WnCrcbKLI2YF' },
-      '会员调理': { baseToken: '***REMOVED***', tableId: 'tbl3gNN3XcLQ0OVf' },
-    },
-  },
-};
+// 从环境变量读取表配置
+function loadTableConfig() {
+  const raw = process.env.FEISHU_TABLE_CONFIG;
+  if (!raw) {
+    throw new Error('缺少环境变量 FEISHU_TABLE_CONFIG，请在 Netlify 环境变量中配置');
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    throw new Error(`FEISHU_TABLE_CONFIG 解析失败: ${e.message}`);
+  }
+}
+
+const TABLE_CONFIG = loadTableConfig();
 
 // 内存缓存 tenant_access_token
 let tokenCache = { token: null, expiresAt: 0 };

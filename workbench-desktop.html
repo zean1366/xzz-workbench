@@ -700,6 +700,8 @@
   <main class="main"><div id="screen"></div></main>
 </div>
 
+<!-- 敏感配置文件（不提交到代码仓库，本地自行创建） -->
+<script src="app-config.js"></script>
 <script>
 /* ============================================================
    CONFIG — 唯一需要定制的地方（与手机版结构一致）。
@@ -712,8 +714,12 @@
      note     内容记录/日记（标题 + 正文 + 心情标签）
    图标用 icon 字段（取自下方 ICONS 图标库，全部为单色线性图标）。
    ============================================================ */
-const SUPABASE_URL = "***REMOVED***";
-const SUPABASE_KEY = "***REMOVED***";
+// 从外部配置文件读取敏感密钥（app-config.js，不提交到代码仓库）
+// 如果没有配置文件，则使用空值，对应功能降级
+const _cfg = window.APP_CONFIG || {};
+const SUPABASE_URL = _cfg.SUPABASE_URL || "";
+const SUPABASE_KEY = _cfg.SUPABASE_KEY || "";
+const DEEPSEEK_KEY = _cfg.DEEPSEEK_KEY || "";
 
 const CONFIG = {
   version: "20261010-1",
@@ -2065,7 +2071,6 @@ let voiceStartTime = 0;
 let voiceTimer = null;
 let voiceFinalText = "";
 let voiceCurrentRec = null;
-const DEEPSEEK_KEY = "***REMOVED***";
 
 function initVoiceRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;

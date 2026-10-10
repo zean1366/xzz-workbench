@@ -582,85 +582,122 @@
 
   .hidden { display:none !important; }
 
-  /* ========== 移动端响应式 ========== */
-  @media (max-width: 768px) {
-    :root { --sidebar-w: 0px; }
-    .sidebar {
-      position: fixed; top: auto; bottom: 0; left: 0; right: 0;
-      width: 100%; height: auto; flex-direction: row;
-      padding: 0; z-index: 100;
-      background: linear-gradient(180deg, var(--drawer-bg), var(--drawer-bg-top));
-      border-top: 1px solid var(--drawer-hover);
-    }
-    .sidebar .brand { display: none; }
-    .sidebar .nav {
-      display: flex; flex-direction: row; overflow-x: auto;
-      padding: 6px 8px; gap: 2px; flex: 1;
-      -webkit-overflow-scrolling: touch;
-    }
-    .sidebar .nav::-webkit-scrollbar { display: none; }
-    .sidebar .nav .section-label { display: none; }
-    .sidebar .nav .nav-item {
-      flex-direction: column; gap: 3px; padding: 8px 12px;
-      min-width: 64px; justify-content: center; border-radius: 12px;
-    }
-    .sidebar .nav .nav-item .ni-ic { margin: 0; font-size: 20px; }
-    .sidebar .nav .nav-item .ni-tx { font-size: 10px; text-align: center; }
-    .sidebar .nav .nav-item .ni-badge { top: 4px; right: 12px; }
-    .sidebar .foot { display: none; }
-    
-    .main { margin-left: 0; padding: 16px 14px 100px; }
-    .main > #screen { max-width: 100%; }
-    
-    .header h2 { font-size: 20px; }
-    .header p { font-size: 12px; }
-    .date-chip { font-size: 11px; padding: 5px 10px; }
-    
-    .hero-banner { padding: 20px 18px; min-height: 120px; }
-    .hero-banner h2 { font-size: 20px; }
-    .hero-banner .sub { font-size: 12.5px; }
-    
-    .dashboard { grid-template-columns: 1fr; gap: 12px; }
-    .dashboard .b12 { grid-column: span 1; }
-    .dashboard .b8 { grid-column: span 1; }
-    .dashboard .b7 { grid-column: span 1; }
-    
-    .ov2-body { flex-direction: column; }
-    .ov2-side { width: 100%; }
-    
-    .rings { grid-template-columns: repeat(3, 1fr); }
-    
-    .mod-layout { grid-template-columns: 1fr; }
-    .mod-side { order: -1; }
-    
-    .sec-title { font-size: 13px; margin: 14px 2px 8px; }
-    
-    .toolbar { flex-direction: column; gap: 10px; align-items: stretch; }
-    .toolbar .spacer { display: none; }
-    .search-box { width: 100%; }
-    
-    .btn { width: 100%; justify-content: center; }
-    
-    .habit-tb { font-size: 11.5px; }
-    .habit-tb th, .habit-tb td { padding: 6px 4px; }
-    
-    .filter-tabs { gap: 4px; }
-    .filter-tab { padding: 5px 10px; font-size: 11.5px; }
-    
-    .quick-grid { grid-template-columns: repeat(4, 1fr); }
-    
-    .stage-board { flex-direction: column; overflow-x: auto; }
-    .stage-col { min-width: 260px; }
-    
-    .modal-panel { width: 95%; max-height: 90vh; margin: 5vh auto; }
-    .modal-body { padding: 16px; }
-    
-    .form-row { grid-template-columns: 1fr; }
-    
-    .voice-card { padding: 16px; }
-    .voice-btn { width: 72px; height: 72px; font-size: 28px; }
+  /* ========== 移动端专属样式 ========== */
+  /* 顶部导航栏 */
+  .mobile-header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+    height: 52px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 12px;
+    background: linear-gradient(180deg, var(--drawer-bg-top), var(--drawer-bg));
+    color: var(--drawer-text);
+    border-bottom: 1px solid var(--drawer-hover);
   }
+  .menu-btn {
+    width: 40px; height: 40px;
+    background: transparent; border: none;
+    color: var(--drawer-text);
+    font-size: 22px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 10px;
+  }
+  .menu-btn:active { background: var(--drawer-hover); }
+  .mobile-title {
+    font-size: 17px; font-weight: 700;
+    flex: 1; text-align: center;
+  }
+
+  /* 遮罩层 */
+  .drawer-mask {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,.5); z-index: 90;
+    opacity: 0; visibility: hidden;
+    transition: opacity .2s, visibility .2s;
+  }
+  .drawer-mask.show { opacity: 1; visibility: visible; }
+
+  /* 侧边栏变抽屉 */
+  .sidebar {
+    position: fixed; top: 0; left: -280px; bottom: 0;
+    width: 280px; height: 100vh; z-index: 100;
+    transition: transform .25s ease;
+  }
+  .sidebar.open { transform: translateX(280px); }
+
+  /* 底部 Tab 导航栏 */
+  .bottom-tabbar {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 50;
+    height: 64px;
+    display: flex; align-items: stretch;
+    background: #fff;
+    border-top: 1px solid #eee;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .tab-item {
+    flex: 1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 3px;
+    color: #999; font-size: 11px;
+    cursor: pointer;
+    transition: color .15s;
+  }
+  .tab-item.active { color: var(--module-1); }
+  .tab-item:active { background: #f5f5f5; }
+  .tab-ic { font-size: 22px; line-height: 1; }
+  .tab-tx { font-size: 11px; font-weight: 500; }
+
+  /* 主内容区调整 */
+  .main { margin-left: 0; padding: 64px 14px 80px; }
+  .main > #screen { max-width: 100%; }
   
+  .header h2 { font-size: 20px; }
+  .header p { font-size: 12px; }
+  .date-chip { font-size: 11px; padding: 5px 10px; }
+  
+  .hero-banner { padding: 20px 18px; min-height: 120px; }
+  .hero-banner h2 { font-size: 20px; }
+  .hero-banner .sub { font-size: 12.5px; }
+  
+  .dashboard { grid-template-columns: 1fr; gap: 12px; }
+  .dashboard .b12 { grid-column: span 1; }
+  .dashboard .b8 { grid-column: span 1; }
+  .dashboard .b7 { grid-column: span 1; }
+  
+  .ov2-body { flex-direction: column; }
+  .ov2-side { width: 100%; }
+  
+  .rings { grid-template-columns: repeat(3, 1fr); }
+  
+  .mod-layout { grid-template-columns: 1fr; }
+  .mod-side { order: -1; }
+  
+  .sec-title { font-size: 13px; margin: 14px 2px 8px; }
+  
+  .toolbar { flex-direction: column; gap: 10px; align-items: stretch; }
+  .toolbar .spacer { display: none; }
+  .search-box { width: 100%; }
+  
+  .btn { width: 100%; justify-content: center; }
+  
+  .habit-tb { font-size: 11.5px; }
+  .habit-tb th, .habit-tb td { padding: 6px 4px; }
+  
+  .filter-tabs { gap: 4px; }
+  .filter-tab { padding: 5px 10px; font-size: 11.5px; }
+  
+  .quick-grid { grid-template-columns: repeat(4, 1fr); }
+  
+  .stage-board { flex-direction: column; overflow-x: auto; }
+  .stage-col { min-width: 260px; }
+  
+  .modal-panel { width: 95%; max-height: 90vh; margin: 5vh auto; }
+  .modal-body { padding: 16px; }
+  
+  .form-row { grid-template-columns: 1fr; }
+  
+  .voice-card { padding: 16px; }
+  .voice-btn { width: 72px; height: 72px; font-size: 28px; }
+
   @media (max-width: 480px) {
     .rings { grid-template-columns: repeat(3, 1fr); }
     .ring .pct { font-size: 15px; }
@@ -678,8 +715,18 @@
 </head>
 <body>
 <div class="layout">
-  <!-- sidebar -->
-  <aside class="sidebar">
+  <!-- 顶部导航栏 -->
+  <header class="mobile-header">
+    <button class="menu-btn" id="menuBtn">☰</button>
+    <div class="mobile-title" id="mobileTitle">我的工作台</div>
+    <div style="width:40px"></div>
+  </header>
+
+  <!-- 遮罩层（点击关闭抽屉） -->
+  <div class="drawer-mask" id="drawerMask"></div>
+
+  <!-- sidebar (抽屉式) -->
+  <aside class="sidebar" id="sidebar">
     <div class="brand">
       <div class="ava" id="ava" title="点击更换头像"><img src="assets/avatar.jpg" alt="头像" id="avaImg"/><span class="cam" id="avaCam"></span></div>
       <input type="file" id="avatarInput" accept="image/*" hidden/>
@@ -696,8 +743,29 @@
       </button>
     </div>
   </aside>
+
   <!-- main -->
   <main class="main"><div id="screen"></div></main>
+
+  <!-- 底部 Tab 导航栏 -->
+  <nav class="bottom-tabbar" id="bottomTabbar">
+    <div class="tab-item active" data-tab="home">
+      <div class="tab-ic">🏠</div>
+      <div class="tab-tx">首页</div>
+    </div>
+    <div class="tab-item" data-tab="todo">
+      <div class="tab-ic">✅</div>
+      <div class="tab-tx">待办</div>
+    </div>
+    <div class="tab-item" data-tab="record">
+      <div class="tab-ic">📝</div>
+      <div class="tab-tx">记录</div>
+    </div>
+    <div class="tab-item" data-tab="me">
+      <div class="tab-ic">👤</div>
+      <div class="tab-tx">我的</div>
+    </div>
+  </nav>
 </div>
 
 <script>
@@ -2807,7 +2875,78 @@ function esc(s){ return String(s??"").replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&l
 function attr(s){ return esc(s).replace(/"/g,'&quot;'); }
 
 buildNav();
+
+/* ---------- 抽屉侧边栏 ---------- */
+const sidebar = $("#sidebar");
+const drawerMask = $("#drawerMask");
+$("#menuBtn").onclick = () => {
+  sidebar.classList.toggle("open");
+  drawerMask.classList.toggle("show");
+};
+drawerMask.onclick = () => {
+  sidebar.classList.remove("open");
+  drawerMask.classList.remove("show");
+};
+// 点击侧边栏导航后自动关闭抽屉
+$("#nav").addEventListener("click", (e) => {
+  if(e.target.closest("[data-go]")){
+    sidebar.classList.remove("open");
+    drawerMask.classList.remove("show");
+  }
+});
+
+/* ---------- 底部 Tab 栏 ---------- */
+// 底部 Tab 与页面的映射关系
+const tabMap = {
+  "home": "home",
+  "todo": "todo",
+  "record": "quickshop",
+  "me": "insight"
+};
+// Tab 与标题的映射
+const tabTitleMap = {
+  "home": "我的工作台",
+  "todo": "每日待办",
+  "record": "门店随手记",
+  "me": "洞察复盘"
+};
+function updateTabActive(v){
+  document.querySelectorAll(".tab-item").forEach(t => {
+    const tabKey = t.dataset.tab;
+    const targetKey = tabMap[tabKey];
+    t.classList.toggle("active", targetKey === v);
+  });
+  // 更新顶部标题
+  const titleEl = $("#mobileTitle");
+  if(titleEl){
+    // 找到当前页面对应的标题
+    let title = "我的工作台";
+    if(v === "home") title = "我的工作台";
+    else if(v === "insight") title = "洞察复盘";
+    else {
+      const m = CONFIG.modules.find(m => m.key === v);
+      if(m) title = m.name;
+    }
+    titleEl.textContent = title;
+  }
+}
+document.querySelectorAll(".tab-item").forEach(tab => {
+  tab.onclick = () => {
+    const target = tabMap[tab.dataset.tab];
+    if(target) go(target);
+  };
+});
+// 重写 go 函数，增加更新 Tab 状态
+const _origGo = go;
+go = function(v){
+  _origGo(v);
+  updateTabActive(v);
+};
+
 render();
+// 初始化底部 Tab 状态
+updateTabActive(view);
+
 // 设置同步按钮图标和点击事件
 const syncIconEl = document.getElementById('syncIcon');
 if(syncIconEl) syncIconEl.innerHTML = icon('refresh', 14);

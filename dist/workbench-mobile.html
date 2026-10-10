@@ -1194,21 +1194,38 @@ let searchQ = "";
 let todoFilter = "today";                                    // 待办筛选：today/week/all
 let clockTimer = null;                                       // 全局秒级心跳（时钟）
 function persist(){ 
-  // 自动打卡：检查有 autoCheck 属性的习惯，如果对应模块今天有记录，自动打勾
-  if(data.checkin) {
-    const t = today();
-    data.checkin.forEach(habit => {
-      if(!habit.autoCheck) return;
-      const modKey = habit.autoCheck;
-      const records = data[modKey] || [];
-      const hasToday = records.some(r => r.date === t);
-      if(hasToday && !habit.log?.[t]) {
-        habit.log = habit.log || {};
-        habit.log[t] = true;
-      }
-    });
-  }
   store.save(); render(); scheduleSync(); 
+  // 检查自动打卡（有 autoChecked 机制保护，不会覆盖用户手动操作）
+  autoCheckHabits();
+}
+
+// 自动打卡：当对应模块新增了今天的记录时，自动给习惯打勾
+// 注意：用户手动取消过的不自动打回（尊重用户意愿）
+function autoCheckHabits() {
+  if(!data.checkin) return;
+  const t = today();
+  let changed = false;
+  data.checkin.forEach(habit => {
+    if(!habit.autoCheck) return;
+    const modKey = habit.autoCheck;
+    const records = data[modKey] || [];
+    const hasToday = records.some(r => r.date === t);
+    habit.log = habit.log || {};
+    habit.autoChecked = habit.autoChecked || {};
+    // 如果今天有记录，且还没打卡，且用户没有手动取消过 → 自动打勾
+    if(hasToday && !habit.log[t] && habit.autoChecked[t] !== false) {
+      habit.log[t] = true;
+      habit.autoChecked[t] = true;
+      changed = true;
+    }
+    // 如果今天没记录了，且之前是自动打的 → 自动取消（比如记录被删了）
+    if(!hasToday && habit.log[t] && habit.autoChecked[t]) {
+      delete habit.log[t];
+      delete habit.autoChecked[t];
+      changed = true;
+    }
+  });
+  if(changed) { store.save(); render(); }
 }
 
 // 防抖同步：保存后延迟同步，避免频繁操作时重复请求
@@ -1605,10 +1622,13 @@ function wireHome(){
   $("#screen").querySelectorAll(".js-pin-inc").forEach(el=>el.onclick=e=>{ e.stopPropagation(); const x=find(el); if(!x) return; x.current=(+x.current||0)+1; persist(); });
   $("#screen").querySelectorAll(".js-pin-dec").forEach(el=>el.onclick=e=>{ e.stopPropagation(); const x=find(el); if(!x) return; x.current=Math.max(0,(+x.current||0)-1); persist(); });
   $("#screen").querySelectorAll(".js-pin-open").forEach(el=>el.onclick=e=>{ e.stopPropagation(); openEditor(el.dataset.mkey, find(el)); });
-  // 习惯追踪表：点方框直接给对应日期打卡 / 取消
+  // 习惯追踪表：点方框直接给对应日期打卡 / 取消（手动操作优先，覆盖自动打卡）
   $("#screen").querySelectorAll(".js-habit").forEach(el=>el.onclick=e=>{
     e.stopPropagation(); const x=(data.checkin||[]).find(i=>i.id==el.dataset.id); if(!x) return;
-    const d=el.dataset.day; x.log=x.log||{}; x.log[d]?delete x.log[d]:x.log[d]=true; persist();
+    const d=el.dataset.day; x.log=x.log||{}; x.autoChecked=x.autoChecked||{};
+    if(x.log[d]) { delete x.log[d]; x.autoChecked[d] = false; }  // 取消打卡，标记为手动取消
+    else { x.log[d] = true; delete x.autoChecked[d]; }          // 手动打卡，清除自动标记
+    persist();
   });
 }
 

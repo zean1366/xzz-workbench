@@ -8,8 +8,11 @@
 <meta http-equiv="Expires" content="0">
 <title>喜姿姿的工作台</title>
 <script>
-  var APP_VERSION = "20261010-1";
-  var isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  var APP_VERSION = "20261010-2";
+  // 判断是否手机：UA 匹配 或 屏幕宽度小于 768px
+  var isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(navigator.userAgent);
+  var isNarrow = window.innerWidth < 768;
+  var isMobile = isMobileUA || isNarrow;
   var page = isMobile ? "workbench-mobile.html" : "workbench-desktop.html";
   // 加版本号参数，强制浏览器加载最新版本
   window.location.href = page + "?v=" + APP_VERSION;

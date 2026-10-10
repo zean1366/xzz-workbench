@@ -2,9 +2,9 @@
  * 构建脚本：生成用于公开部署的版本
  * 输出到 dist/ 目录
  * 
- * 只做两件事（确保不破坏语法）：
- * 1. 敏感字符串 base64 编码（Supabase URL/Key）
- * 2. 复制其他文件
+ * 注意：所有敏感密钥（Supabase Key、DeepSeek Key 等）
+ * 都从 app-config.js 读取，该文件不提交到代码仓库。
+ * 部署时需要自行创建 app-config.js 并填入密钥。
  */
 
 const fs = require('fs');
@@ -20,31 +20,9 @@ if (fs.existsSync(DIST)) {
 fs.mkdirSync(DIST, { recursive: true });
 fs.mkdirSync(path.join(DIST, 'assets'), { recursive: true });
 
-// 敏感字符串混淆：base64 + 运行时解码
-function obfuscateString(str) {
-  const b64 = Buffer.from(str, 'utf-8').toString('base64');
-  return `atob("${b64}")`;
-}
-
-// 处理 HTML 文件：只替换敏感字符串
+// 处理 HTML 文件
 function processHTML(srcPath, dstPath) {
   let html = fs.readFileSync(srcPath, 'utf-8');
-
-  // 替换 Supabase URL
-  html = html.replace(
-    /"https:\/\/***REMOVED***"/g,
-    obfuscateString('***REMOVED***')
-  );
-
-  // 替换 Supabase Key
-  html = html.replace(
-    /"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.[^"]+"/g,
-    (match) => {
-      const key = match.slice(1, -1);
-      return obfuscateString(key);
-    }
-  );
-
   fs.writeFileSync(dstPath, html, 'utf-8');
   
   const originalSize = fs.statSync(srcPath).size;
@@ -105,3 +83,4 @@ let hasError = false;
 if (!hasError) console.log('  ✅ 所有 JS 语法检查通过');
 
 console.log('\n✅ 构建完成！输出目录：dist/');
+console.log('⚠️  提醒：部署前请在 dist/ 目录创建 app-config.js 并填入你的密钥配置');

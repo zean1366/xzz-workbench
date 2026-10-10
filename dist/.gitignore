@@ -1,0 +1,9 @@
+node_modules/
+.env
+*.log
+.DS_Store
+Thumbs.db
+
+# ===== 敏感配置（请勿提交到代码仓库）=====
+sync-config.js       # 飞书多维表格配置（含 baseToken）
+check-cloud.js       # 云端数据检查脚本（含 Supabase key）

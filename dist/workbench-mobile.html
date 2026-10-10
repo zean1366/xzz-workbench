@@ -583,6 +583,7 @@
   .hidden { display:none !important; }
 
   /* ========== 移动端专属样式 ========== */
+  body { min-width: 0; }
   /* 顶部导航栏 */
   .mobile-header {
     position: fixed; top: 0; left: 0; right: 0; z-index: 50;
@@ -662,6 +663,11 @@
   .dashboard .b12 { grid-column: span 1; }
   .dashboard .b8 { grid-column: span 1; }
   .dashboard .b7 { grid-column: span 1; }
+
+  /* 首页 bento 布局改单列 */
+  .bento { grid-template-columns: 1fr; gap: 12px; }
+  .bento .b3, .bento .b4, .bento .b5, .bento .b6,
+  .bento .b7, .bento .b8, .bento .b12 { grid-column: span 1; }
   
   .ov2-body { flex-direction: column; }
   .ov2-side { width: 100%; }

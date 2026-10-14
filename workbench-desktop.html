@@ -1346,10 +1346,12 @@ function scheduleSync() {
   }, 3000); // 3秒后自动推送
 }
 
-// 轮询：每 5 分钟从飞书拉取最新数据（手机/电脑接近实时同步）
-// 原来 15 秒一次，会把云函数调用次数和外网响应流量放大 20 倍，是账单变高的主因；
-// 工作台基本单人使用，5 分钟足够，切回页面时还会立刻同步一次
-const SYNC_POLL_INTERVAL = 300000;
+// 轮询拉取：打开页面时立即全量同步一次，之后每 5 小时自动拉一次（页面隐藏时暂停）
+// 5 小时的间隔下云函数调用极少，费用几乎为零；
+// 切走再切回来页面并不会重新加载，所以「切回页面」时补一次同步（限 10 分钟内只补一次），
+// 保证随时回到工作台看到的数据都是新鲜的
+const SYNC_POLL_INTERVAL = 18000000;
+const VIS_PULL_GAP = 600000;
 let _pollTimer = null;
 function startSyncPolling() {
   if(!CONFIG.cloudSync) return;
@@ -1361,11 +1363,15 @@ function startSyncPolling() {
       syncManager.pullAllQuiet();
     }
   }, SYNC_POLL_INTERVAL);
-  // 切回页面时立刻拉一次，弥补轮询间隔变长
   if(!window._visSyncBound){
     window._visSyncBound = true;
+    let _lastVisPull = Date.now(); // 打开页面时已经同步过一次
     document.addEventListener("visibilitychange", () => {
-      if(!document.hidden && CONFIG.cloudSync && !syncManager.isSyncing) syncManager.pullAllQuiet();
+      if(!document.hidden && CONFIG.cloudSync && !syncManager.isSyncing
+         && Date.now() - _lastVisPull > VIS_PULL_GAP){
+        _lastVisPull = Date.now();
+        syncManager.pullAllQuiet();
+      }
     });
   }
 }

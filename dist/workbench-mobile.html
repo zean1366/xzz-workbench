@@ -1412,10 +1412,12 @@ function scheduleSync() {
   }, 3000); // 3秒防抖后静默推送本地改动
 }
 
-// 轮询拉取：每 5 分钟从飞书拉一次最新数据（页面隐藏时暂停）
-// 原来 15 秒一次，会把云函数调用次数和外网响应流量放大 20 倍，是账单变高的主因；
-// 工作台基本单人使用，5 分钟足够，切回页面时还会立刻同步一次
-const SYNC_POLL_INTERVAL = 300000;
+// 轮询拉取：打开页面时立即全量同步一次，之后每 5 小时自动拉一次（页面隐藏时暂停）
+// 5 小时的间隔下云函数调用极少，费用几乎为零；
+// 手机上切走再切回来页面并不会重新加载，所以「切回页面」时补一次同步（限 10 分钟内只补一次），
+// 保证随时回到工作台看到的数据都是新鲜的
+const SYNC_POLL_INTERVAL = 18000000;
+const VIS_PULL_GAP = 600000;
 let _pollTimer = null;
 function startSyncPolling() {
   if(!CONFIG.cloudSync) return;
@@ -1424,11 +1426,15 @@ function startSyncPolling() {
     if(document.hidden) return;
     if(!syncManager.isSyncing) { syncManager.pullAllQuiet(); }
   }, SYNC_POLL_INTERVAL);
-  // 切回页面（手机切标签/解锁）时立刻拉一次，弥补轮询间隔变长
   if(!window._visSyncBound){
     window._visSyncBound = true;
+    let _lastVisPull = Date.now(); // 打开页面时已经同步过一次
     document.addEventListener("visibilitychange", () => {
-      if(!document.hidden && CONFIG.cloudSync && !syncManager.isSyncing) syncManager.pullAllQuiet();
+      if(!document.hidden && CONFIG.cloudSync && !syncManager.isSyncing
+         && Date.now() - _lastVisPull > VIS_PULL_GAP){
+        _lastVisPull = Date.now();
+        syncManager.pullAllQuiet();
+      }
     });
   }
 }
@@ -1797,7 +1803,7 @@ function renderInsight(){
       <span class="arw" style="color:var(--text-tertiary)">${icon("chevron",16,2)}</span></div>`; }).join("");
   $("#screen").innerHTML=`<div class="header"><div><h2>洞察</h2><p>各模块进展一览 · 记录—执行—统计—反馈</p></div><div class="spacer"></div><span class="date-chip">${icon("calendar",14)} ${dateStr()}</span></div>
     ${habitStatsHTML()}
-    <div class="sec-title">模块概况</div><div class="pin-list" style="grid-template-columns:repeat(3,1fr)">${cards}</div>`;
+    <div class="sec-title">模块概况</div><div class="pin-list">${cards}</div>`;
   $("#screen").querySelectorAll("[data-open]").forEach(el=>el.onclick=()=>go(el.dataset.open));
 }
 

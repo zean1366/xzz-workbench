@@ -224,7 +224,7 @@
 
   /* ---------- pinned tasks ---------- */
   .pin-list { display:grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-  .pin { display:flex; align-items:center; gap: 13px; padding: 15px 16px; border-radius: var(--radius-tile);
+  .pin { display:flex; align-items:center; gap: 13px; padding: 15px 16px; border-radius: var(--radius-tile); min-width: 0; max-width: 100%; overflow: hidden;
     background: var(--surface-card); border: 1px solid var(--border); box-shadow: var(--shadow-card); transition: box-shadow .15s, transform .12s; }
   .pin:hover { box-shadow: var(--shadow-overlay); transform: translateY(-1px); }
   .pin-ic { width: 38px; height: 38px; border-radius: 11px; display:grid; place-items:center; flex:0 0 auto;

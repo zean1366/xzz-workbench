@@ -205,6 +205,26 @@ function fromCheckinLog(val) {
   }
   return {};
 }
+// 由打卡日期表算出三个统计值：总天数、连续天数（昨天或今天还在打才算连续中）、最近打卡时间戳
+function checkinStats(log) {
+  const days = Object.keys(log || {}).filter(d => log[d]).sort();
+  const count = days.length;
+  const last = count ? days[count - 1] : null;
+  let streak = 0;
+  if (last) {
+    const t = new Date(Date.now() + 8 * 3600 * 1000);
+    const tmd = t.toISOString().slice(0, 10);
+    const ymd = new Date(t.getTime() - 86400000).toISOString().slice(0, 10);
+    if (last === tmd || last === ymd) {
+      streak = 1;
+      for (let i = days.length - 2; i >= 0; i--) {
+        const diff = (new Date(days[i + 1] + 'T00:00:00+08:00') - new Date(days[i] + 'T00:00:00+08:00')) / 86400000;
+        if (diff === 1) streak++; else break;
+      }
+    }
+  }
+  return { count, streak, lastTs: last ? new Date(last + 'T00:00:00+08:00').getTime() : null };
+}
 
 function splitRecords(localRecords, buildFieldsFn) {
   const createBatch = [];
@@ -664,10 +684,14 @@ async function pushCheckin(records) {
   for (const rec of records) {
     const title = (rec.title || '').trim();
     if (!title) continue; // 空标题不入库，避免云端出现空白行
+    const st = checkinStats(rec.log);
     const fields = {
       '习惯名称': title,
       '打卡记录': toCheckinLog(rec.log),
       '自动关联模块': toSelect(rec.autoCheck || ''),
+      '打卡天数': st.count,
+      '连续打卡': st.streak,
+      '最近打卡': st.lastTs,
     };
     const rid = byTitle.has(title) ? byTitle.get(title) : (rec.record_id || null);
     if (rid) {

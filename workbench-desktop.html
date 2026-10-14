@@ -1346,8 +1346,10 @@ function scheduleSync() {
   }, 3000); // 3秒后自动推送
 }
 
-// 轮询：每 15 秒从飞书拉取最新数据（手机/电脑接近实时同步）
-const SYNC_POLL_INTERVAL = 15000;
+// 轮询：每 5 分钟从飞书拉取最新数据（手机/电脑接近实时同步）
+// 原来 15 秒一次，会把云函数调用次数和外网响应流量放大 20 倍，是账单变高的主因；
+// 工作台基本单人使用，5 分钟足够，切回页面时还会立刻同步一次
+const SYNC_POLL_INTERVAL = 300000;
 let _pollTimer = null;
 function startSyncPolling() {
   if(!CONFIG.cloudSync) return;
@@ -1359,6 +1361,13 @@ function startSyncPolling() {
       syncManager.pullAllQuiet();
     }
   }, SYNC_POLL_INTERVAL);
+  // 切回页面时立刻拉一次，弥补轮询间隔变长
+  if(!window._visSyncBound){
+    window._visSyncBound = true;
+    document.addEventListener("visibilitychange", () => {
+      if(!document.hidden && CONFIG.cloudSync && !syncManager.isSyncing) syncManager.pullAllQuiet();
+    });
+  }
 }
 
 // 页面加载后自动与飞书同步

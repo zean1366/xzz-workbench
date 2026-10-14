@@ -182,12 +182,23 @@ function fromAttachment(val) {
 }
 function toCheckinLog(log) {
   if (!log || typeof log !== 'object') return '';
-  return JSON.stringify(log);
+  // 存为可读日期串：「2026-10-13、2026-10-14」，飞书表里直接能看懂
+  const days = Object.keys(log).filter(d => log[d]).sort();
+  return days.length ? days.join('、') : '';
 }
 function fromCheckinLog(val) {
   if (!val) return {};
   if (typeof val === 'object') return val;
-  try { return JSON.parse(val); } catch (e) { return {}; }
+  if (typeof val === 'string') {
+    const s = val.trim();
+    if (!s) return {};
+    if (s.startsWith('{')) { try { return JSON.parse(s); } catch (e) { return {}; } }
+    // 可读格式解析：「2026-10-13、2026-10-14」→ { '2026-10-13': true, ... }
+    const out = {};
+    s.split(/[、,，;；\s]+/).filter(Boolean).forEach(d => { out[d.trim()] = true; });
+    return out;
+  }
+  return {};
 }
 
 function splitRecords(localRecords, buildFieldsFn) {
@@ -600,13 +611,38 @@ async function pushCheckin(records) {
   const TABLE_CONFIG = requireTableConfig();
   const cfg = TABLE_CONFIG.checkin;
   if (!cfg || !cfg.baseToken) return { created: 0, updated: 0, records };
-  const { createBatch, updateBatch } = splitRecords(records, rec => ({
-    '习惯名称': rec.title || '',
-    '打卡记录': toCheckinLog(rec.log),
-    '自动关联模块': toSelect(rec.autoCheck || ''),
-  }));
+  // 以「习惯名称」为业务主键 upsert：本地 record_id 失效（如云端清空过）时自动按名称匹配，
+  // 云端没有同名习惯才新建——根治重复习惯与死 record_id 更新失败问题
+  const remote = await fetchAllRecords(cfg.baseToken, cfg.tableId);
+  const byTitle = new Map();
+  for (const r of remote) {
+    const t = (r.fields || {})['习惯名称'];
+    if (t && !byTitle.has(t)) byTitle.set(t, r.record_id);
+  }
+  const createBatch = [];
+  const updateBatch = [];
+  const updatedRefs = []; // [{ rec, record_id }] 更新成功后回填本地
+  for (const rec of records) {
+    const title = (rec.title || '').trim();
+    if (!title) continue; // 空标题不入库，避免云端出现空白行
+    const fields = {
+      '习惯名称': title,
+      '打卡记录': toCheckinLog(rec.log),
+      '自动关联模块': toSelect(rec.autoCheck || ''),
+    };
+    const rid = byTitle.has(title) ? byTitle.get(title) : (rec.record_id || null);
+    if (rid) {
+      updateBatch.push({ record_id: rid, fields });
+      updatedRefs.push({ rec, record_id: rid });
+    } else {
+      createBatch.push(fields);
+    }
+  }
   const up = await batchUpdate(cfg.baseToken, cfg.tableId, updateBatch);
   const cr = await batchCreate(cfg.baseToken, cfg.tableId, createBatch);
+  for (const { rec, record_id } of updatedRefs) {
+    rec.record_id = record_id;
+  }
   assignRecordIds(records, cr.record_ids);
   return { created: cr.record_ids.length, updated: up.count, records };
 }

@@ -933,11 +933,31 @@ function avgProgress(list){
 const modOf = k => CONFIG.modules.find(m=>m.key===k);
 const $ = s => document.querySelector(s);
 
+// 打卡数据清洗：按「习惯名称」去重，保留打卡天数最多的一条（融合 record_id），清除历史重复行
+function dedupeCheckin(list){
+  if(!Array.isArray(list)) return list;
+  const byTitle=new Map();
+  for(const x of list){
+    const t=(x.title||'').trim(); if(!t) continue;
+    const days=x.log?Object.keys(x.log).filter(d=>x.log[d]).length:0;
+    const cur=byTitle.get(t);
+    if(!cur) byTitle.set(t,x);
+    else{
+      const curDays=cur.log?Object.keys(cur.log).filter(d=>cur.log[d]).length:0;
+      if(days>curDays){ if(cur.record_id&&!x.record_id) x.record_id=cur.record_id; byTitle.set(t,x); }
+      else if(x.record_id&&!cur.record_id) cur.record_id=x.record_id;
+    }
+  }
+  return [...byTitle.values()];
+}
+
 const store = {
   load(){
     const raw = localStorage.getItem(CONFIG.storageKey);
     if(raw){ try {
       const d = JSON.parse(raw);
+      // 打卡数据清洗：清除历史重复习惯行
+      if(d.checkin) d.checkin = dedupeCheckin(d.checkin);
       // 补上新增模块的种子数据（如果本地存储里没有的话）
       CONFIG.modules.forEach(m => {
         if(!d[m.key]) d[m.key] = structuredClone(m.seed || []);
@@ -1120,6 +1140,22 @@ const syncManager = {
         const localPending = (data[modKey] || []).filter(r => !r.record_id);
         const remoteKeys = new Set(deduped.map(r => `${r.title}|${r.date||''}|${r.priority||''}|${r.category||''}`));
         const pendingKeep = localPending.filter(r => !remoteKeys.has(`${r.title}|${r.date||''}|${r.priority||''}|${r.category||''}`));
+        // 打卡模块按「习惯名称」合并：本地打卡数据优先，云端只补齐本地没有的习惯——根治重复行
+        if(modKey==='checkin'){
+          const localArr=(data.checkin||[]).slice();
+          const byTitle=new Map(localArr.map(x=>[(x.title||'').trim(),x]));
+          const merged=[]; const seenT=new Set();
+          for(const r of deduped){
+            const t=(r.title||'').trim(); if(!t||seenT.has(t)) continue; seenT.add(t);
+            const local=byTitle.get(t);
+            if(local){ if(r.record_id&&!local.record_id) local.record_id=r.record_id; merged.push(local); }
+            else merged.push(r);
+          }
+          for(const x of localArr){ const t=(x.title||'').trim(); if(t&&!seenT.has(t)){ seenT.add(t); merged.push(x); } }
+          data.checkin=merged;
+          localStorage.setItem(CONFIG.storageKey, JSON.stringify(data));
+          return { ok:true, count: merged.length };
+        }
         data[modKey] = [...deduped, ...pendingKeep];
         const removed = result.records.length - deduped.length;
         if(removed > 0) console.log(`[同步] ${modKey} 去重了 ${removed} 条重复记录`);
@@ -1583,7 +1619,7 @@ function overviewTileHTML(){
       <div class="ov2-side">
         <div class="ov2-stat" data-open="note"><span class="s-ic" style="color:var(--module-2)">${icon("chart",17)}</span><div class="s-tx"><div class="s-v">${recCount}</div><div class="s-l">累计记录条数</div></div></div>
         <div class="ov2-stat"><span class="s-ic" style="color:var(--module-3)">${icon("star",17)}</span><div class="s-tx"><div class="s-v">${pinCount}</div><div class="s-l">置顶要事</div></div></div>
-        <div class="ov2-stat" data-open="money"><span class="s-ic" style="color:${balCol}">${icon("wallet",17)}</span><div class="s-tx"><div class="s-v" style="color:${balCol}">¥${bal}</div><div class="s-l">本月结余 · 收¥${inc} 支¥${exp}</div></div></div>
+        <div class="ov2-stat" data-open="money"><span class="s-ic" style="color:${balCol}">${icon("wallet",17)}</span><div class="s-tx"><div class="s-v" style="color:${balCol}">¥${bal.toFixed(2)}</div><div class="s-l">本月结余 · 收¥${inc.toFixed(2)} 支¥${exp.toFixed(2)}</div></div></div>
       </div>
     </div></div>`;
 }
@@ -1647,20 +1683,18 @@ function trendTileHTML(){
     ${body}${has?`<div class="trend-x"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>`:''}</div>`;
 }
 
-/* 月度开销：finance 支出按分类占比 */
+/* 月度开销：只显示总支出/总收入汇总（明细去「生活收支」板块看） */
 function spendTileHTML(){
-  const all=data.money||[]; const exp=all.filter(x=>x.type==="expense").reduce((a,x)=>a+ +x.amount,0);
-  const palette=["var(--module-4)","var(--module-3)","var(--module-1)","var(--module-2)","var(--module-5)","var(--accent)","var(--danger)"];
-  const byCat={}; all.filter(x=>x.type==="expense").forEach(x=>{ const c=x.smallCategory||x.bigCategory||"其他"; byCat[c]=(byCat[c]||0)+ +x.amount; });
-  const cats=Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
-  const rows=cats.length? cats.map((c,i)=>{ const pc=exp?Math.round(c[1]/exp*100):0; const col=palette[i%palette.length];
-    return `<div class="book-row js-open" data-open="money"><span class="spine" style="background:${col}">${icon("wallet",16)}</span>
-      <div class="bmid"><div class="btt">${esc(c[0])}</div><div class="bsub">¥${c[1]}</div>
-        <div class="bbar"><i style="width:${pc}%;background:${col}"></i></div></div><span class="bpct" style="color:${col}">${pc}%</span></div>`; }).join("")
-    : `<div class="focus-empty">暂无支出记录</div>`;
-  return `<div class="tile b4"><div class="tile-h"><span class="tic">${icon("wallet",16)}</span><div class="tt"><span class="en">MONTHLY SPENDING</span><span class="zh">月度开销</span></div><span class="r js-open" data-open="money">明细</span></div>
-    <div class="spend-sum"><span class="spend-total">¥${exp}</span><span class="spend-cap">本月支出 · 共 ${all.filter(x=>x.type==='expense').length} 笔</span></div>
-    <div class="book-list">${rows}</div></div>`;
+  const all=data.money||[];
+  const exp=all.filter(x=>x.type==="expense").reduce((a,x)=>a+ +x.amount,0);
+  const inc=all.filter(x=>x.type==="income").reduce((a,x)=>a+ +x.amount,0);
+  const expCnt=all.filter(x=>x.type==="expense").length;
+  const incCnt=all.filter(x=>x.type==="income").length;
+  const bal=inc-exp;
+  return `<div class="tile b4"><div class="tile-h"><span class="tic">${icon("wallet",16)}</span><div class="tt"><span class="en">MONTHLY SPENDING</span><span class="zh">月度开销</span></div><span class="r js-open" data-open="money">记账</span></div>
+    <div class="spend-sum"><span class="spend-total" style="color:var(--danger)">支 ¥${exp.toFixed(2)}</span><span class="spend-cap">本月支出 · 共 ${expCnt} 笔</span></div>
+    <div class="spend-sum"><span class="spend-total" style="color:var(--module-1)">收 ¥${inc.toFixed(2)}</span><span class="spend-cap">本月收入 · 共 ${incCnt} 笔</span></div>
+    <div class="spend-sum"><span class="spend-total" style="color:${bal>=0?'var(--module-1)':'var(--danger)'}">结余 ¥${bal.toFixed(2)}</span><span class="spend-cap">记录自动回填飞书收支表</span></div></div>`;
 }
 
 /* 在读好书：read (progress) 各书进度 */
@@ -1753,7 +1787,7 @@ function renderInsight(){
     else if(m.type==="checkin"){ const t=today(); main=`今日 ${it.filter(x=>x.log&&x.log[t]).length}/${it.length} 打卡`; pct=it.length?Math.round(it.filter(x=>x.log&&x.log[t]).length/it.length*100):0; }
     else if(m.type==="progress"){ pct=avgProgress(it).value; main=`平均进度 ${pct}%`; }
     else if(m.type==="weekly"){ const done=it.filter(x=>x.stage==="已完成").length; pct=it.length?Math.round(done/it.length*100):0; main=`${done}/${it.length} 已完成`; }
-    else if(m.type==="finance"){ const e=it.filter(x=>x.type==="expense").reduce((a,x)=>a+ +x.amount,0); const inc=it.filter(x=>x.type==="income").reduce((a,x)=>a+ +x.amount,0); main=`收 ¥${inc} · 支 ¥${e}`; }
+    else if(m.type==="finance"){ const e=it.filter(x=>x.type==="expense").reduce((a,x)=>a+ +x.amount,0); const inc=it.filter(x=>x.type==="income").reduce((a,x)=>a+ +x.amount,0); main=`收 ¥${inc.toFixed(2)} · 支 ¥${e.toFixed(2)}`; }
     else if(m.type==="period"){ main=it.length?`已记录 ${it.length} 次`:'暂无记录'; }
     else main=`${it.length} 条记录`;
     return `<div class="pin" data-open="${m.key}" style="cursor:pointer">
@@ -1817,9 +1851,9 @@ function renderModule(key){
     const inc=all.filter(x=>x.type==="income").reduce((a,x)=>a+ +x.amount,0);
     const exp=all.filter(x=>x.type==="expense").reduce((a,x)=>a+ +x.amount,0);
     head=`<div class="mod-summary">
-      <div class="mini"><div class="l">收入</div><div class="v" style="color:var(--module-1)">¥${inc}</div></div>
-      <div class="mini"><div class="l">支出</div><div class="v" style="color:var(--danger)">¥${exp}</div></div>
-      <div class="mini"><div class="l">结余</div><div class="v">¥${inc-exp}</div></div>
+      <div class="mini"><div class="l">收入</div><div class="v" style="color:var(--module-1)">¥${inc.toFixed(2)}</div></div>
+      <div class="mini"><div class="l">支出</div><div class="v" style="color:var(--danger)">¥${exp.toFixed(2)}</div></div>
+      <div class="mini"><div class="l">结余</div><div class="v">¥${(inc-exp).toFixed(2)}</div></div>
       <div class="mini"><div class="l">笔数</div><div class="v">${all.length}</div></div></div>`;
   } else if(m.type==="todo"){
     const done=all.filter(x=>x.done).length;
@@ -1845,8 +1879,10 @@ function renderModule(key){
     head=headHero(m, `${all.length}`, `条记录 · 今日 ${todayN} 条`, null);
   }
 
-  const body = it.length ? it.map(x=>recHTML(m,x)).join("")
-    : `<div class="empty"><span class="e">${icon(m.icon,28)}</span><div>${q?'没有匹配的记录':'还没有记录，点右上角「新建」添加第一条吧'}</div></div>`;
+  const body = (m.type==="finance")
+    ? `<div class="empty"><span class="e">${icon(m.icon,28)}</span><div>收支记录自动回填飞书账本<br>本板块专注记录，明细到飞书「个人家庭收支记录」查看</div></div>`
+    : (it.length ? it.map(x=>recHTML(m,x)).join("")
+    : `<div class="empty"><span class="e">${icon(m.icon,28)}</span><div>${q?'没有匹配的记录':'还没有记录，点右上角「新建」添加第一条吧'}</div></div>`);
 
   // 语音卡片（diary / finance / quickshop）
   let voiceSection = "";
@@ -1996,20 +2032,14 @@ function sideStats(m, all){
   if(m.type==="finance"){
     const inc=all.filter(x=>x.type==="income").reduce((a,x)=>a+ +x.amount,0);
     const exp=all.filter(x=>x.type==="expense").reduce((a,x)=>a+ +x.amount,0);
-    // 支出按分类聚合
-    const byCat={}; all.filter(x=>x.type==="expense").forEach(x=>{ const c=x.smallCategory||x.bigCategory||"其他"; byCat[c]=(byCat[c]||0)+ +x.amount; });
-    const cats=Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
-    const maxC=cats.length?cats[0][1]:1;
-    const catBars=cats.length? cats.map((c,i)=>`<div class="cbrow"><span class="cbn">${esc(c[0])}</span><span class="cbt"><i style="width:${Math.round(c[1]/maxC*100)}%;background:${palette[i%palette.length]}"></i></span><span class="cbv">¥${c[1]}</span></div>`).join("")
-      : `<div style="color:var(--text-tertiary);font-size:12.5px;padding:6px 0">暂无支出记录</div>`;
     const todayExp=all.filter(x=>x.type==="expense"&&x.date===t).reduce((a,x)=>a+ +x.amount,0);
     return `<div class="side-card"><div class="sh">${icon("wallet",15)} 收支概况</div>
-        ${row("总收入",`<span style="color:var(--module-1)">¥${inc}</span>`)}
-        ${row("总支出",`<span style="color:var(--danger)">¥${exp}</span>`)}
-        ${row("净结余",`¥${inc-exp}`)}
-        ${row("今日支出",`¥${todayExp}`)}
+        ${row("总收入",`<span style="color:var(--module-1)">¥${inc.toFixed(2)}</span>`)}
+        ${row("总支出",`<span style="color:var(--danger)">¥${exp.toFixed(2)}</span>`)}
+        ${row("净结余",`¥${(inc-exp).toFixed(2)}`)}
+        ${row("今日支出",`¥${todayExp.toFixed(2)}`)}
         ${row("总笔数",`${all.length} 笔`)}</div>
-      <div class="side-card"><div class="sh">${icon("chart",15)} 支出分类占比</div><div class="catbar">${catBars}</div></div>`;
+      <div class="side-card"><div class="sh">${icon("chart",15)} 明细去向</div><div style="color:var(--text-tertiary);font-size:12.5px;line-height:1.9;padding:6px 0">每笔收支自动回填飞书「个人家庭收支记录」多维表格<br>本板块主打快速记账，明细统一到飞书查看</div></div>`;
   }
 
   if(m.type==="progress"){

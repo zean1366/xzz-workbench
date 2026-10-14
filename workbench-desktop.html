@@ -212,32 +212,9 @@
     background: var(--accent); color:var(--on-accent); display:grid; place-items:center; border: 2px solid var(--surface-card); }
   .qbtn .l { font-size:13.5px; font-weight:700; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
-  /* voice diary */
-  .voice-card { background: var(--surface-card); border: 1px solid var(--border); border-radius: var(--radius-card);
-    box-shadow: var(--shadow-card); padding: 32px 24px; text-align: center; margin-bottom: 20px; }
-  .voice-btn { width: 120px; height: 120px; border-radius: 50%; border: none; cursor: pointer;
-    background: linear-gradient(135deg, var(--module-5), #b8a5c7); color: #fff;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    margin: 0 auto 18px; box-shadow: 0 8px 24px rgba(150,120,180,.35);
-    transition: transform .15s, box-shadow .15s; user-select: none; }
-  .voice-btn:active, .voice-btn.recording { transform: scale(1.08); box-shadow: 0 12px 32px rgba(150,120,180,.5); }
-  .voice-btn.recording { animation: pulse 1.2s ease-in-out infinite; }
-  @keyframes pulse {
-    0%, 100% { box-shadow: 0 8px 24px rgba(150,120,180,.35); }
-    50% { box-shadow: 0 8px 40px rgba(150,120,180,.6), 0 0 0 16px rgba(150,120,180,.1); }
-  }
-  .voice-btn svg { margin-bottom: 6px; }
-  .voice-btn .vlabel { font-size: 13px; font-weight: 600; }
-  .voice-hint { font-size: 14px; color: var(--text-secondary); line-height: 1.8; }
-  .voice-hint b { color: var(--text); font-weight: 600; }
-  .voice-live { background: var(--surface-nested); border-radius: 12px; padding: 14px 18px; margin-top: 20px;
-    text-align: left; min-height: 70px; font-size: 14px; color: var(--text); line-height: 1.7;
-    border: 1px solid var(--border); display: none; }
-  .voice-live.show { display: block; }
-  .voice-live .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-    background: var(--danger); margin-right: 10px; animation: blink 1s infinite; }
-  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
-  .voice-timer { font-size: 12px; color: var(--text-tertiary); margin-top: 10px; text-align: right; }
+  /* 记录卡片里的实拍缩略图 */
+  .r-photos { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .r-photos img { width:64px; height:64px; object-fit:cover; border-radius:8px; border:1px solid var(--border); }
 
   /* trend panel */
   .panel { background: var(--surface-card); border: 1px solid var(--border); border-radius: var(--radius-card); box-shadow: var(--shadow-card); padding:18px; }
@@ -656,9 +633,6 @@
     .modal-body { padding: 16px; }
     
     .form-row { grid-template-columns: 1fr; }
-    
-    .voice-card { padding: 16px; }
-    .voice-btn { width: 72px; height: 72px; font-size: 28px; }
   }
   
   @media (max-width: 480px) {
@@ -716,9 +690,8 @@
    ============================================================ */
 // 从外部配置文件读取敏感密钥（app-config.js，不提交到代码仓库）
 // 如果没有配置文件，则使用空值，对应功能降级
-// 飞书多维表格是唯一数据源（通过本地 server.js / Netlify Functions 中转，不在前端暴露密钥）
+// 飞书多维表格是唯一数据源（通过腾讯云 SCF Web 函数中转，不在前端暴露密钥）
 const _cfg = window.APP_CONFIG || {};
-const DEEPSEEK_KEY = _cfg.DEEPSEEK_KEY || "";
 
 // 腾讯云 SCF 云函数站点地址（前端托管在 GitHub Pages，云函数部署在腾讯云 SCF，跨域调用必须用绝对地址）
 // 【已配置】腾讯云 SCF 函数访问地址（2026-10-14 联调通过，pull/push 全链路打通）
@@ -762,12 +735,6 @@ const CONFIG = {
     title:"本周状态趋势", unit:"分",
     series: d => (Array.isArray(d.__trend) && d.__trend.length===7) ? d.__trend : [],
   },
-
-  quickAdd: [
-    { label:"门店随手记", icon:"shop", module:"quickshop", tint:"#f5efe0", color:"var(--module-3)" },
-    { label:"碎片灵感杂事", icon:"pen", module:"diary", tint:"#eeeaf0", color:"var(--module-5)" },
-    { label:"生活收支", icon:"wallet", module:"money", tint:"#f6efe8", color:"var(--module-4)" },
-  ],
 
   modules: [
     { key:"todo", name:"每日待办", icon:"list", tint:"#f0e6d8", color:"var(--accent)", type:"todo", desc:"今天要做的事，做完打勾",
@@ -852,7 +819,7 @@ const CONFIG = {
       moods:["灵感","待办","问题","想法"],
       seed:[ {id:301,title:"会员说敷完药后睡眠变好了",content:"张姐说连续敷了5天，最近躺下就能睡着。这个反馈可以做成案例分享。",mood:"灵感",date:isoToday()} ] },
 
-    { key:"money", name:"生活收支", icon:"wallet", tint:"#f6efe8", color:"var(--module-4)", type:"finance", desc:"语音记账，说一句话自动归类",
+    { key:"money", name:"生活收支", icon:"wallet", tint:"#f6efe8", color:"var(--module-4)", type:"finance", desc:"每一笔收支都有去处，自动回填飞书账本",
       payMethods:["支付宝","微信","平安银行","现金"],
       bigCategories:["个人衣食行开支","家庭开支","育儿开支"],
       smallCategories:["三餐","零食水果","护肤品","衣裤鞋袜包","电话费","交通费","服务自我","卫生纸卷纸餐巾纸","日化用品","柴米油盐","人情礼物","图书","玩具","游玩","其他"],
@@ -1023,6 +990,10 @@ function syncApiUrl(type, module) {
   }
   // 腾讯云 SCF（query 参数路由：?action=pull&module=todo / ?action=push&module=todo）
   return `${SCF_API_BASE}/?action=${type}&module=${module}`;
+}
+// 飞书附件图片通过云函数代理回显（token 不能直接访问）
+function mediaUrl(token){
+  return token ? `${SCF_API_BASE}/?action=media&token=${encodeURIComponent(token)}` : '';
 }
 
 // ========== 失败重试：网络异常时缓存待推送记录，下次同步自动重推 ==========
@@ -1555,52 +1526,6 @@ function dateKey(d){
 /* ---------- HOME (Bento 复杂仪表盘) ---------- */
 function grp(zh,en){ return `<div class="sec-grp"><span class="bar"></span><span class="zh">${zh}</span><span class="en">${en}</span><span class="line"></span></div>`; }
 
-/* 今日聚焦：今天的高优先级待办 + 手动置顶的内容（就地交互，不跳转） */
-function focusTileHTML(){
-  const t=today();
-  const pins=[];
-  
-  // 1. 自动加入：今天的高优先级待办（未完成）
-  const todoItems = (data.todo||[])
-    .filter(x=>!x.done && x.priority==="高" && (x.date===t || !x.date))
-    .slice(0, 5) // 最多5条
-    .map(x=>({ m: modOf("todo"), x, auto: true }));
-  pins.push(...todoItems);
-  
-  // 2. 手动置顶的内容（排除已自动加入的）
-  const autoIds = new Set(todoItems.map(p=>p.x.id));
-  CONFIG.modules.forEach(m=>(data[m.key]||[]).forEach(x=>{ 
-    if(x.pinned && !autoIds.has(x.id)) pins.push({m, x, auto: false}); 
-  }));
-  
-  const chk=icon("check",13,2.6);
-  const sub=(m,x,auto)=>{
-    if(auto) return `今日高优 · ${m.name}`;
-    if(m.type==="checkin") return `${m.name} · 连续 ${streak(x.log)} 天`;
-    if(m.type==="progress"){ const p=Math.min(100,Math.round((x.current/x.target)*100||0)); return `${m.name} · ${x.current}/${x.target} ${x.unit||m.unit||''} · ${p}%`; }
-    return m.name;
-  };
-  const ctl=(m,x)=>{
-    if(m.type==="checkin"){ const on=!!(x.log&&x.log[today()]); return `<div class="pin-chk js-pin-chk ${on?'on':''}" data-mkey="${m.key}" data-id="${x.id}">${chk}</div>`; }
-    if(m.type==="todo"){ return `<div class="pin-chk js-pin-chk ${x.done?'on':''}" data-mkey="${m.key}" data-id="${x.id}">${chk}</div>`; }
-    if(m.type==="progress"){ return `<div class="pin-step"><button class="js-pin-dec" data-mkey="${m.key}" data-id="${x.id}">−</button><button class="js-pin-inc" data-mkey="${m.key}" data-id="${x.id}">+</button></div>`; }
-    return `<span style="color:var(--text-tertiary)">${icon("chevron",16,2)}</span>`;
-  };
-  const rows = pins.length ? pins.map(({m,x,auto})=>`<div class="focus-row">
-      <span class="fic" style="color:${m.color}">${icon(m.icon,16)}</span>
-      <div class="ft js-pin-open" data-mkey="${m.key}" data-id="${x.id}"><div class="fn ${(m.type==='todo'&&x.done)?'done':''}">${esc(x.title)}</div><div class="fm">${sub(m,x,auto)}</div></div>
-      ${ctl(m,x)}</div>`).join("")
-    : `<div class="focus-empty">今天没有高优先级待办，轻松一天 ☺️<br><span style="font-size:11.5px;opacity:.7">在待办里点 ⭐ 可以手动置顶其他内容</span></div>`;
-  return `<div class="tile b4"><div class="tile-h"><span class="tic">${icon("star",16)}</span><div class="tt"><span class="en">TODAY'S FOCUS</span><span class="zh">今日聚焦</span></div><span class="r">${pins.length} 项</span></div>
-    <div class="focus-list">${rows}</div></div>`;
-}
-
-/* 快速记录 */
-function quickTileHTML(){
-  const quick = CONFIG.quickAdd.map(q=>`<button class="qbtn" data-quick="${q.module}"><span class="e" style="background:${q.tint};color:${q.color}">${icon(q.icon,20)}<i class="qplus">${icon("plus",10,3)}</i></span><span class="l">${q.label}</span></button>`).join("");
-  return `<div class="tile b4"><div class="tile-h"><span class="tic">${icon("plus",16,2.2)}</span><div class="tt"><span class="en">QUICK ADD</span><span class="zh">快速记录</span></div></div>
-    <div class="quick-grid" style="flex:1;align-content:start">${quick}</div></div>`;
-}
 
 /* 今日概览（环形 + 深色统计侧栏，合并原「整体情况」独有指标） */
 function overviewTileHTML(){
@@ -1642,31 +1567,37 @@ function habitTileHTML(){
     <table class="habit-tb"><thead><tr><th class="hh">习惯</th>${ths}<th class="hr">完成率</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
-/* 待办清单（仪表盘式，就地勾选，默认只显示今天的） */
+/* 待办清单（仪表盘式，就地勾选；逾期任务顺延置顶显示） */
 function todoTileHTML(){
   const all=data.todo||[];
   const t=today();
+  // 逾期未完成：计划日期早于今天，顺延到今天继续显示，置顶提醒
+  const overdueItems = all.filter(x=>!x.done && x.date && x.date<t)
+    .sort((a,b)=>a.date.localeCompare(b.date));
   // 今天的待办（日期=今天，或没有日期的）
   const todayItems = all.filter(x=>!x.done && (x.date===t || !x.date));
   // 按优先级排序：高→中→低
   const priOrder = { "高": 0, "中": 1, "低": 2 };
   todayItems.sort((a,b)=>(priOrder[a.priority]||99) - (priOrder[b.priority]||99));
-  
-  const done=all.filter(x=>x.done && x.date===t).length;
-  const todayTotal = todayItems.length + done;
+  const pendingItems = [...overdueItems, ...todayItems];
+
+  // 今日已完成：实际完成日期=今天（含补勾的逾期任务）；兼容没有完成时间的旧数据
+  const done=all.filter(x=>x.done && (x.doneAt===t || (!x.doneAt && x.date===t))).length;
+  const todayTotal = pendingItems.length + done;
   const pct=todayTotal?Math.round(done/todayTotal*100):0;
   const chk=icon("check",12,2.8);
-  
-  const showItems = todayItems.slice(0, 6); // 最多显示6条
-  const moreCount = todayItems.length - 6;
-  
+
+  const showItems = pendingItems.slice(0, 6); // 最多显示6条
+  const moreCount = pendingItems.length - 6;
+
   const list = showItems.length ? showItems.map(x=>{
     const m=modOf("todo"); const p=(m.priorities||[]).find(p=>p.key===x.priority);
+    const od = x.date && x.date<t ? overdueDays(x.date) : 0;
     return `<div class="tk-row"><div class="tk-chk js-pin-chk ${x.done?'on':''}" data-mkey="todo" data-id="${x.id}">${chk}</div>
       <span class="tk-name ${x.done?'done':''} js-pin-open" data-mkey="todo" data-id="${x.id}">${esc(x.title)}</span>
-      ${p?`<span class="badge" style="background:${p.color};color:${p.text}"><span class="dot"></span>${p.label}</span>`:''}</div>`; }).join("")
+      ${od?`<span class="badge" style="background:#fdeceb;color:#c26b5d">逾期${od}天</span>`:(p?`<span class="badge" style="background:${p.color};color:${p.text}"><span class="dot"></span>${p.label}</span>`:'')}</div>`; }).join("")
     : `<div class="focus-empty">今天没有待办，休息一下 ☺️</div>`;
-  
+
   const moreLine = moreCount > 0 ? `<div class="tk-more js-open" data-open="todo">还有 ${moreCount} 条待办 →</div>` : '';
   
   return `<div class="tile b4"><div class="tile-h"><span class="tic">${icon("list",16)}</span><div class="tt"><span class="en">TODAY'S TODO</span><span class="zh">今日待办</span></div><span class="r js-open" data-open="todo">全部</span></div>
@@ -1739,13 +1670,11 @@ function renderHome(){
     ${grp("今日节奏","TODAY&nbsp;&nbsp;·&nbsp;&nbsp;RHYTHM")}
     <div class="bento">
       ${clockCard}
-      ${focusTileHTML()}
-      ${quickTileHTML()}
+      ${todoTileHTML()}
     </div>
 
     ${grp("本周重点","WEEKLY&nbsp;&nbsp;·&nbsp;&nbsp;FOCUS")}
     <div class="bento">
-      ${todoTileHTML()}
       ${goalsTileHTML()}
       ${spendTileHTML()}
     </div>
@@ -1763,7 +1692,7 @@ function wireHome(){
   // 就地打卡 / 完成
   $("#screen").querySelectorAll(".js-pin-chk").forEach(el=>el.onclick=e=>{
     e.stopPropagation(); const m=modOf(el.dataset.mkey), x=find(el); if(!x) return;
-    if(m.type==="todo"){ x.done=!x.done; }
+    if(m.type==="todo"){ toggleTodoDone(x); }
     else if(m.type==="checkin"){ x.log=x.log||{}; const t=today(); x.log[t]?delete x.log[t]:x.log[t]=true; }
     persist();
   });
@@ -1814,13 +1743,15 @@ function renderModule(key){
     const wk = weekDates();
     const priOrder = { "高": 0, "中": 1, "低": 2 };
     // 各筛选下的计数（未完成）
-    const cntToday = all.filter(x=>!x.done && (x.date===t || !x.date)).length;
+    // 「今天」包含逾期未完成任务：计划日没打勾的事会顺延累计显示，不会被跳过
+    const cntOverdue = all.filter(x=>!x.done && x.date && x.date<t).length;
+    const cntToday = all.filter(x=>!x.done && (x.date===t || !x.date)).length + cntOverdue;
     const cntWeek = all.filter(x=>!x.done && x.date && wk.includes(x.date)).length;
     const cntAll = all.filter(x=>!x.done).length;
-    
+
     if(!q){
       if(todoFilter==="today"){
-        it = all.filter(x=>!x.done && (x.date===t || !x.date));
+        it = all.filter(x=>!x.done && (!x.date || x.date<=t));
       } else if(todoFilter==="week"){
         it = all.filter(x=>!x.done && x.date && wk.includes(x.date));
       } else {
@@ -1828,7 +1759,12 @@ function renderModule(key){
       }
     }
     it = [...it].sort((a,b)=>{
-      // 先按优先级
+      // 逾期任务置顶：逾期越久越靠前
+      const ao = a.date && a.date<t ? 0 : (a.date===t ? 1 : 2);
+      const bo = b.date && b.date<t ? 0 : (b.date===t ? 1 : 2);
+      if(ao !== bo) return ao - bo;
+      if(ao === 0){ return a.date.localeCompare(b.date); }
+      // 今天/无日期：先按优先级
       const pa = priOrder[a.priority] ?? 99;
       const pb = priOrder[b.priority] ?? 99;
       if(pa !== pb) return pa - pb;
@@ -1838,9 +1774,9 @@ function renderModule(key){
       if(a.date && b.date) return a.date.localeCompare(b.date);
       return 0;
     });
-    
+
     filterTabs = `<div class="filter-tabs">
-      <div class="filter-tab ${todoFilter==='today'?'active':''}" data-filter="today">今天 <span class="cnt">${cntToday}</span></div>
+      <div class="filter-tab ${todoFilter==='today'?'active':''}" data-filter="today">今天${cntOverdue?`/逾期`:''} <span class="cnt">${cntToday}</span></div>
       <div class="filter-tab ${todoFilter==='week'?'active':''}" data-filter="week">本周 <span class="cnt">${cntWeek}</span></div>
       <div class="filter-tab ${todoFilter==='all'?'active':''}" data-filter="all">全部未完成 <span class="cnt">${cntAll}</span></div>
     </div>`;
@@ -1884,55 +1820,6 @@ function renderModule(key){
     : (it.length ? it.map(x=>recHTML(m,x)).join("")
     : `<div class="empty"><span class="e">${icon(m.icon,28)}</span><div>${q?'没有匹配的记录':'还没有记录，点右上角「新建」添加第一条吧'}</div></div>`);
 
-  // 语音卡片（diary / finance / quickshop）
-  let voiceSection = "";
-  if(m.type==="diary"){
-    voiceSection = `<div class="voice-card">
-      <button class="voice-btn" id="btn-voice">
-        ${icon("mic", 32, 2)}
-        <span class="vlabel">开始录音</span>
-      </button>
-      <div class="voice-hint">
-        <b>点击开始</b>说话，说完再点一下结束<br>
-        支持普通话，说完自动转文字
-      </div>
-      <div class="voice-live" id="voice-live">
-        <span class="dot"></span><span id="voice-text">正在听...</span>
-        <div class="voice-timer" id="voice-timer">00:00</div>
-      </div>
-    </div>`;
-  } else if(m.type==="finance"){
-    voiceSection = `<div class="voice-card">
-      <button class="voice-btn" id="btn-voice" style="background: linear-gradient(135deg, var(--module-4), #d4b896); box-shadow: 0 8px 24px rgba(196,154,108,.35);">
-        ${icon("mic", 32, 2)}
-        <span class="vlabel">开始录音</span>
-      </button>
-      <div class="voice-hint">
-        <b>点击开始</b>说一句话记账，结束后自动解析<br>
-        例如："午饭花了25块微信付的"
-      </div>
-      <div class="voice-live" id="voice-live">
-        <span class="dot"></span><span id="voice-text">正在听...</span>
-        <div class="voice-timer" id="voice-timer">00:00</div>
-      </div>
-    </div>`;
-  } else if(m.type==="quickshop"){
-    voiceSection = `<div class="voice-card">
-      <button class="voice-btn" id="btn-voice" style="background: linear-gradient(135deg, var(--module-3), #d4b87a); box-shadow: 0 8px 24px rgba(196,154,108,.35);">
-        ${icon("mic", 32, 2)}
-        <span class="vlabel">开始录音</span>
-      </button>
-      <div class="voice-hint">
-        <b>点击开始</b>说门店流水，结束后自动归类<br>
-        例如："张姐肩颈调理128块会员消费"
-      </div>
-      <div class="voice-live" id="voice-live">
-        <span class="dot"></span><span id="voice-text">正在听...</span>
-        <div class="voice-timer" id="voice-timer">00:00</div>
-      </div>
-    </div>`;
-  }
-
   // 内容生产：4阶段看板布局
   if(m.key==="content"){
     const stages = m.stages || ["选题池","文案中","待拍摄","已发布"];
@@ -1975,8 +1862,7 @@ function renderModule(key){
           <div class="rec-grid">${body}</div>
         </div>
         <aside class="mod-side">${sideStats(m,all)}</aside>
-      </div>
-      ${voiceSection}`;
+      </div>`;
   }
   const s=$("#search");
   let composing=false;
@@ -2111,9 +1997,11 @@ function recHTML(m,x){
   const customBlock=customMeta?`<div class="meta-line">${customMeta}</div>`:'';
 
   if(m.type==="todo"){ const p=(m.priorities||[]).find(p=>p.key===x.priority);
+    const od=!x.done&&x.date&&x.date<today()?overdueDays(x.date):0;
     return `<div class="rec">${acts}<div class="top" style="padding-right:60px"><div class="chk js-chk ${x.done?'on':''}" data-id="${x.id}">${chkMark}</div>
       <div class="body" data-edit="${x.id}"><span class="rname ${x.done?'done':''}">${esc(x.title)}</span>
-      ${p?`<span class="badge" style="background:${p.color};color:${p.text}"><span class="dot"></span>${p.label}</span>`:''}
+      ${od?`<span class="badge" style="background:#fdeceb;color:#c26b5d">逾期${od}天</span>`:(p?`<span class="badge" style="background:${p.color};color:${p.text}"><span class="dot"></span>${p.label}</span>`:'')}
+      ${x.date?`<span class="rdate">${cnDate(x.date)}</span>`:''}
       ${x.note?`<span class="rdate" style="margin-left:0;color:var(--text-tertiary)">${esc(x.note).slice(0,40)}</span>`:''}${customBlock}</div></div></div>`; }
   if(m.type==="checkin"){ const on=!!(x.log&&x.log[today()]); const st=streak(x.log);
     return `<div class="rec">${acts}<div class="top" style="padding-right:60px"><div class="chk js-chk ${on?'on':''}" data-id="${x.id}">${chkMark}</div>
@@ -2136,12 +2024,14 @@ function recHTML(m,x){
       <span class="rdate">${cnDate(x.date)||''}</span>${x.payMethod?`<span class="rdate">${esc(x.payMethod)}</span>`:''}${customBlock}</div>
       <div class="amt ${inc?'inc':'exp'}">${inc?'+':(x.type==='transfer'?'':'-')}¥${x.amount}</div></div></div>`; }
   if(m.type==="quickshop"){
+    const photos = Array.isArray(x.photo) ? x.photo.filter(Boolean) : [];
     return `<div class="rec">${acts}<div class="top" style="padding-right:60px"><div class="body" data-edit="${x.id}">
       <span class="rname">${esc(x.title||'无标题')}</span>
       ${x.mood?`<span class="badge" style="background:var(--accent-muted);color:var(--accent)">${esc(x.mood)}</span>`:''}
       <span class="rdate">${cnDate(x.date)||''}</span>
-      ${x.customer?`<div class="rnote" style="font-size:13px">客户：${esc(x.customer)}${x.project?' · '+esc(x.project):''}</div>`:''}
+      ${x.customer?`<div class="rnote" style="font-size:13px">客户：${esc(x.customer)}${x.project?' · '+esc(Array.isArray(x.project)?x.project.join('、'):x.project):''}</div>`:''}
       ${x.feedback?`<div class="rnote" style="font-size:12.5px;color:var(--text-secondary)">${esc(x.feedback)}</div>`:''}
+      ${photos.length?`<div class="r-photos">${photos.slice(0,6).map(t=>`<img src="${mediaUrl(t)}" loading="lazy" alt="实拍"/>`).join('')}</div>`:''}
       ${customBlock}</div>
       ${x.amount?`<div class="amt inc">¥${x.amount}</div>`:''}</div></div>`; }
   if(m.type==="weekly"){
@@ -2175,10 +2065,24 @@ function recHTML(m,x){
 function streak(log){ if(!log) return 0; let n=0; const d=new Date();
   for(;;){ const k=d.toISOString().slice(0,10); if(log[k]){ n++; d.setDate(d.getDate()-1);} else break; } return n; }
 
+// 逾期天数（东八区日期相减），date<今天返回正数，未来日期返回负数
+function overdueDays(dateStr){
+  if(!dateStr) return 0;
+  const a=new Date(today()+'T00:00:00+08:00').getTime();
+  const b=new Date(dateStr+'T00:00:00+08:00').getTime();
+  return Math.round((a-b)/86400000);
+}
+// 勾选/取消完成待办：同步记录实际完成日期（回填飞书「完成时间」字段）
+function toggleTodoDone(x){
+  x.done=!x.done;
+  if(x.done) x.doneAt=today();
+  else x.doneAt='';
+}
+
 function wireModule(key){ const m=modOf(key);
   $("#screen").querySelectorAll(".js-chk").forEach(el=>el.onclick=e=>{ e.stopPropagation();
     const x=(data[key]).find(i=>i.id==el.dataset.id);
-    if(m.type==="todo") x.done=!x.done;
+    if(m.type==="todo") toggleTodoDone(x);
     else if(m.type==="checkin"){ x.log=x.log||{}; const t=today(); x.log[t]?delete x.log[t]:x.log[t]=true; }
     persist(); });
   $("#screen").querySelectorAll("[data-edit]").forEach(el=>el.onclick=()=>openEditor(key,(data[key]).find(i=>i.id==el.dataset.edit)));
@@ -2191,336 +2095,6 @@ function wireModule(key){ const m=modOf(key);
     searchQ = ""; // 切换筛选时清空搜索
     renderModule(key);
   });
-  if(m.type==="diary") wireVoiceDiary(key);
-  if(m.type==="finance") wireVoiceFinance(key);
-  if(m.type==="quickshop") wireVoiceQuickshop(key);
-}
-
-/* ---------- VOICE ---------- */
-let voiceRecording = false;
-let voiceStartTime = 0;
-let voiceTimer = null;
-let voiceFinalText = "";
-let voiceCurrentRec = null;
-
-function initVoiceRecognition() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) return null;
-  const rec = new SR();
-  rec.lang = 'zh-CN';
-  rec.continuous = true;
-  rec.interimResults = true;
-  return rec;
-}
-
-/* ---------- 通用语音录制（点击开始/结束模式） ---------- */
-function toggleVoiceRecording(btnSelector, liveSelector, onFinish) {
-  if (voiceRecording) {
-    voiceRecording = false;
-    const btn = document.querySelector(btnSelector);
-    if (btn) { btn.classList.remove("recording"); const lbl = btn.querySelector(".vlabel"); if(lbl) lbl.textContent = "开始录音"; }
-    if (voiceTimer) { clearInterval(voiceTimer); voiceTimer = null; }
-    try { if(voiceCurrentRec) voiceCurrentRec.stop(); } catch (e) {}
-    const text = voiceFinalText.trim();
-    if (onFinish) onFinish(text);
-    return false;
-  } else {
-    const rec = initVoiceRecognition();
-    if (!rec) return null;
-    voiceCurrentRec = rec;
-    voiceFinalText = "";
-    voiceRecording = true;
-    voiceStartTime = Date.now();
-
-    const btn = document.querySelector(btnSelector);
-    if (btn) { btn.classList.add("recording"); const lbl = btn.querySelector(".vlabel"); if(lbl) lbl.textContent = "结束录音"; }
-    const liveEl = document.querySelector(liveSelector);
-    if (liveEl) { liveEl.classList.add("show"); const tEl = liveEl.querySelector("#voice-text"); if(tEl) tEl.textContent = "正在听..."; }
-
-    rec.onresult = (e) => {
-      let interim = "";
-      let finalText = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const transcript = e.results[i][0].transcript;
-        if (e.results[i].isFinal) finalText += transcript;
-        else interim += transcript;
-      }
-      voiceFinalText += finalText;
-      const textEl = liveEl ? liveEl.querySelector("#voice-text") : null;
-      if (textEl) textEl.textContent = voiceFinalText + interim;
-    };
-    rec.onerror = (e) => {
-      console.warn("语音识别错误:", e.error);
-      if (voiceRecording) {
-        voiceRecording = false;
-        if (btn) { btn.classList.remove("recording"); const lbl = btn.querySelector(".vlabel"); if(lbl) lbl.textContent = "开始录音"; }
-        if (voiceTimer) { clearInterval(voiceTimer); voiceTimer = null; }
-      }
-    };
-    rec.onend = () => {
-      if (voiceRecording) {
-        // 被意外终止，保持录音状态但不自动保存
-      }
-    };
-
-    voiceTimer = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - voiceStartTime) / 1000);
-      const min = String(Math.floor(elapsed / 60)).padStart(2, '0');
-      const sec = String(elapsed % 60).padStart(2, '0');
-      const tEl = document.querySelector(liveSelector + " #voice-timer");
-      if (tEl) tEl.textContent = `${min}:${sec}`;
-    }, 500);
-
-    try { rec.start(); } catch (e) { console.warn("启动录音失败:", e); }
-    return true;
-  }
-}
-
-/* ---------- 调用 DeepSeek 解析语义 ---------- */
-async function aiParseMoney(text) {
-  const prompt = `你是一个记账助手。根据用户的一段话，提取收支信息，返回JSON。
-字段说明：
-- type: 类型，只能是 "expense"(支出) / "income"(收入) / "transfer"(往来)
-- bigCategory: 支出大分类（个人衣食行开支 / 家庭开支 / 育儿开支），只有 type=expense 时有值
-- smallCategory: 支出小分类（三餐/零食水果/护肤品/衣裤鞋袜包/电话费/交通费/服务自我/卫生纸卷纸餐巾纸/日化用品/柴米油盐/人情礼物/图书/玩具/游玩/其他），type=expense 时有值
-- incomeCategory: 收入分类（工资/其他收入），type=income 时有值
-- transferCategory: 往来分类（借出/收回/借入/还款），type=transfer 时有值
-- amount: 金额（数字）
-- payMethod: 支付方式（支付宝/微信/平安银行/现金），不确定就留空
-- note: 备注/对象/说明
-- title: 简短标题（10字以内）
-
-用户说："${text}"
-
-只返回JSON，不要其他文字。`;
-  try {
-    const res = await fetch("https://api.deepseek.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer " + DEEPSEEK_KEY
-      },
-      body: JSON.stringify({
-        model: "deepseek-chat",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.3
-      })
-    });
-    const data = await res.json();
-    const content = data.choices[0].message.content;
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (jsonMatch) return JSON.parse(jsonMatch[0]);
-    return null;
-  } catch (e) {
-    console.warn("AI解析失败:", e);
-    return null;
-  }
-}
-
-async function aiParseShop(text) {
-  const prompt = `你是一个门店记账助手。根据用户的一段话，提取门店记录信息。
-可能包含多条记录，每条记录有这些字段：
-- type: 类型，只能是 "会员消费"/"会员调理"/"会员储值"/"散客消费"/"门店支出"/"赠送礼品"
-- customer: 客户姓名（没有就空）
-- amount: 金额（数字，没有就0）
-- project: 项目/内容（做了什么、买了什么）
-- feedback: 调理反馈/备注（没有就空）
-- date: 日期（用户说哪天就哪天，没说就是今天，格式 YYYY-MM-DD）
-- title: 简短标题（10字以内）
-
-用户说："${text}"
-
-返回JSON数组格式：[{"type":"...","customer":"...",...}]
-只返回JSON，不要其他文字。`;
-  try {
-    const res = await fetch("https://api.deepseek.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer " + DEEPSEEK_KEY
-      },
-      body: JSON.stringify({
-        model: "deepseek-chat",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.3
-      })
-    });
-    const data = await res.json();
-    const content = data.choices[0].message.content;
-    const jsonMatch = content.match(/\[[\s\S]*\]/);
-    if (jsonMatch) return JSON.parse(jsonMatch[0]);
-    return [];
-  } catch (e) {
-    console.warn("AI解析失败:", e);
-    return [];
-  }
-}
-
-/* ---------- 碎片日记语音 ---------- */
-function wireVoiceDiary(key) {
-  const btn = $("#btn-voice");
-  if (!btn) return;
-  const rec = initVoiceRecognition();
-  if (!rec) {
-    btn.onclick = () => openEditor(key, null);
-    btn.querySelector(".vlabel").textContent = "写日记";
-    return;
-  }
-  btn.onclick = (e) => {
-    e.preventDefault();
-    const result = toggleVoiceRecording("#btn-voice", "#voice-live", (text) => {
-      if (text && text.length > 0) {
-        const item = {
-          id: Date.now(),
-          title: text.substring(0, 20) + (text.length > 20 ? "..." : ""),
-          content: text,
-          mood: "想法",
-          date: isoToday()
-        };
-        data[key].unshift(item);
-        persist();
-        renderModule(key);
-      } else {
-        const liveEl = $("#voice-live");
-        if (liveEl) {
-          liveEl.querySelector("#voice-text").textContent = "没听清，再试一次吧～";
-          setTimeout(() => liveEl.classList.remove("show"), 2000);
-        }
-      }
-    });
-  };
-}
-
-/* ---------- 生活收支语音记账 ---------- */
-function wireVoiceFinance(key) {
-  const btn = $("#btn-voice");
-  if (!btn) return;
-  const rec = initVoiceRecognition();
-  if (!rec) {
-    btn.onclick = () => openEditor(key, null);
-    btn.querySelector(".vlabel").textContent = "手动记账";
-    return;
-  }
-  btn.onclick = (e) => {
-    e.preventDefault();
-    const result = toggleVoiceRecording("#btn-voice", "#voice-live", async (text) => {
-      if (text && text.length > 0) {
-        const liveEl = $("#voice-live");
-        if (liveEl) { liveEl.querySelector("#voice-text").textContent = "AI 解析中..."; }
-        const parsed = await aiParseMoney(text);
-        if (parsed) {
-          const item = newItem(modOf(key));
-          item.type = parsed.type || "expense";
-          item.amount = parsed.amount || 0;
-          item.title = parsed.title || text.substring(0, 10);
-          item.note = parsed.note || "";
-          if (parsed.type === "expense") {
-            item.bigCategory = parsed.bigCategory || "";
-            item.smallCategory = parsed.smallCategory || "";
-          } else if (parsed.type === "income") {
-            item.incomeCategory = parsed.incomeCategory || "";
-          } else if (parsed.type === "transfer") {
-            item.transferCategory = parsed.transferCategory || "";
-          }
-          item.payMethod = parsed.payMethod || "";
-          item.date = parsed.date || isoToday();
-          openEditor(key, item, true);
-        } else {
-          if (liveEl) {
-            liveEl.querySelector("#voice-text").textContent = "解析失败，手动输入吧～";
-            setTimeout(() => liveEl.classList.remove("show"), 2000);
-          }
-          openEditor(key, null);
-        }
-      } else {
-        const liveEl = $("#voice-live");
-        if (liveEl) {
-          liveEl.querySelector("#voice-text").textContent = "没听清，再试一次吧～";
-          setTimeout(() => liveEl.classList.remove("show"), 2000);
-        }
-      }
-    });
-  };
-}
-
-/* ---------- 门店随手记语音记账 ---------- */
-function wireVoiceQuickshop(key) {
-  const btn = $("#btn-voice");
-  if (!btn) return;
-  const rec = initVoiceRecognition();
-  if (!rec) {
-    btn.onclick = () => openEditor(key, null);
-    btn.querySelector(".vlabel").textContent = "手动记录";
-    return;
-  }
-  btn.onclick = (e) => {
-    e.preventDefault();
-    const result = toggleVoiceRecording("#btn-voice", "#voice-live", async (text) => {
-      if (text && text.length > 0) {
-        const liveEl = $("#voice-live");
-        if (liveEl) { liveEl.querySelector("#voice-text").textContent = "AI 解析中..."; }
-        const records = await aiParseShop(text);
-        if (records && records.length > 0) {
-          saveQuickshopRecords(key, records, 0);
-        } else {
-          if (liveEl) {
-            liveEl.querySelector("#voice-text").textContent = "解析失败，手动输入吧～";
-            setTimeout(() => liveEl.classList.remove("show"), 2000);
-          }
-          openEditor(key, null);
-        }
-      } else {
-        const liveEl = $("#voice-live");
-        if (liveEl) {
-          liveEl.querySelector("#voice-text").textContent = "没听清，再试一次吧～";
-          setTimeout(() => liveEl.classList.remove("show"), 2000);
-        }
-      }
-    });
-  };
-}
-
-function saveQuickshopRecords(key, records, index) {
-  if (index >= records.length) {
-    renderModule(key);
-    return;
-  }
-  const r = records[index];
-  const item = newItem(modOf(key));
-  item.mood = r.type || "会员消费";
-  item.customer = r.customer || "";
-  item.amount = r.amount || 0;
-  item.project = r.project || "";
-  item.feedback = r.feedback || "";
-  item.title = r.title || (r.customer ? r.customer + " " + (r.project || "") : (r.project || "门店记录"));
-  item.date = r.date || isoToday();
-  const overlay = document.createElement("div");
-  overlay.className = "overlay";
-  overlay.innerHTML = `<div class="modal" style="width:460px"><h3>确认保存（${index+1}/${records.length}）</h3>
-    <div class="sub">${esc(item.mood)} · ${esc(item.title)}</div>
-    <div class="frow"><div class="field"><label>客户</label><input id="qs-customer" value="${attr(item.customer)}" placeholder="客户姓名"/></div>
-      <div class="field"><label>金额 ¥</label><input id="qs-amount" type="number" value="${item.amount||0}"/></div></div>
-    <div class="field"><label>项目 / 内容</label><input id="qs-project" value="${attr(item.project)}"/></div>
-    <div class="field"><label>反馈 / 备注</label><textarea id="qs-feedback" placeholder="补充说明" rows="2">${esc(item.feedback)}</textarea></div>
-    <div class="field"><label>日期</label><div class="date-cn-wrap"><input id="qs-date" type="date" value="${item.date}" onchange="this.parentElement.querySelector('.date-cn-text').textContent=cnDate(this.value)"/><span class="date-cn-text">${cnDate(item.date)}</span></div></div>
-    <div class="modal-actions"><button class="btn ghost" id="qs-skip">跳过</button>
-      <div class="spacer"></div><button class="btn" id="qs-save">保存</button></div></div>`;
-  document.body.appendChild(overlay);
-  const close = () => overlay.remove();
-  overlay.onclick = e => { if (e.target === overlay) close(); };
-  overlay.querySelector("#qs-skip").onclick = () => { close(); saveQuickshopRecords(key, records, index + 1); };
-  overlay.querySelector("#qs-save").onclick = () => {
-    item.customer = overlay.querySelector("#qs-customer").value.trim();
-    item.amount = Math.max(0, +overlay.querySelector("#qs-amount").value || 0);
-    item.date = overlay.querySelector("#qs-date").value;
-    item.project = overlay.querySelector("#qs-project").value.trim();
-    item.feedback = overlay.querySelector("#qs-feedback").value.trim();
-    item.title = item.customer ? (item.customer + (item.project ? " " + item.project : "")) : (item.project || "门店记录");
-    data[key].unshift(item);
-    persist();
-    close();
-    saveQuickshopRecords(key, records, index + 1);
-  };
 }
 
 /* ---------- 内容阅读模式 ---------- */
@@ -2556,18 +2130,47 @@ function openReader(key, item) {
   overlay.querySelector("#r-del").onclick = () => { close(); confirmDelete(key, item.id); };
 }
 
-/* ---------- 照片上传（quickshop / diary / content 支持附件） ---------- */
-function uploadApiUrl(){
-  const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-  return isLocal ? '/api/sync/upload' : `${NETLIFY_API_BASE}/.netlify/functions/sync-upload`;
+/* ---------- 照片上传（走腾讯云 SCF，前端先压缩） ---------- */
+// 图片压缩：最长边 1280，JPEG 0.8，输出 base64（手机随手拍通常 3-8MB，压完 200-500KB）
+async function compressImageToBase64(file){
+  const buf = await file.arrayBuffer();
+  let bmp;
+  try { bmp = await createImageBitmap(new Blob([buf], { type: file.type || 'image/jpeg' })); }
+  catch(e){
+    // 兜底：不压缩，直接 base64
+    return buf2Base64(buf);
+  }
+  const MAX = 1280;
+  let w = bmp.width, h = bmp.height;
+  if(Math.max(w, h) > MAX){
+    const s = MAX / Math.max(w, h);
+    w = Math.round(w * s); h = Math.round(h * s);
+  }
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  cv.getContext('2d').drawImage(bmp, 0, 0, w, h);
+  try { bmp.close && bmp.close(); } catch(e){}
+  return cv.toDataURL('image/jpeg', 0.8).split(',')[1];
+}
+function buf2Base64(buf){
+  let bin = '';
+  const bytes = new Uint8Array(buf);
+  const CHUNK = 0x8000;
+  for(let i=0; i<bytes.length; i+=CHUNK){
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i+CHUNK));
+  }
+  return btoa(bin);
 }
 async function uploadPhotosToFeishu(files, moduleKey, mood){
   const tokens = [];
   for(const file of files){
-    const fd = new FormData();
-    fd.append('metadata', JSON.stringify({ module: moduleKey, mood: mood || '' }));
-    fd.append('file', file, file.name);
-    const res = await fetch(uploadApiUrl(), { method: 'POST', body: fd });
+    const dataBase64 = await compressImageToBase64(file);
+    const url = `${SCF_API_BASE}/?action=upload&module=${encodeURIComponent(moduleKey)}&mood=${encodeURIComponent(mood || '')}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dataBase64, fileName: (file.name || 'photo').replace(/\.[^.]+$/, '') + '.jpg' })
+    });
     const result = await res.json();
     if(!result.ok) throw new Error(result.error || '上传失败');
     tokens.push(result.file_token);
@@ -2579,29 +2182,36 @@ function photoFieldHTML(label){
   return `<div class="field"><label>${label || '照片（可选）'}</label>
     <input type="file" id="f-photo" accept="image/*" multiple style="font-size:13px"/>
     <div id="f-photo-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"></div>
-    <div class="sub" style="margin:4px 0 0">选择后显示预览，点保存时自动上传到飞书附件</div></div>`;
+    <div class="sub" style="margin:4px 0 0">选择后显示预览，点保存时自动压缩上传到飞书附件</div></div>`;
 }
-// 绑定照片选择：本地预览，不立即上传
-function bindPhotoInput(overlay){
+// 绑定照片选择：已存照片（飞书 token）回显 + 新选文件本地预览，均可删
+function bindPhotoInput(overlay, existingTokens){
   const input = overlay.querySelector('#f-photo');
   if(!input) return;
   overlay.__photoFiles = overlay.__photoFiles || [];
+  overlay.__existingTokens = Array.isArray(existingTokens) ? [...existingTokens] : [];
   const list = overlay.querySelector('#f-photo-list');
+  const thumbStyle = 'width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid var(--border)';
+  const delStyle = 'position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:#c26b5d;color:#fff;font-size:12px;line-height:18px;text-align:center;cursor:pointer';
+  const addThumb = (src, onDel) => {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:relative';
+    const img = document.createElement('img');
+    img.src = src; img.style.cssText = thumbStyle;
+    const del = document.createElement('div');
+    del.textContent = '×'; del.style.cssText = delStyle;
+    del.onclick = onDel;
+    wrap.appendChild(img); wrap.appendChild(del);
+    list.appendChild(wrap);
+  };
   const renderPreviews = () => {
     if(!list) return;
     list.innerHTML = '';
+    overlay.__existingTokens.forEach((tok, idx) => {
+      addThumb(mediaUrl(tok), () => { overlay.__existingTokens.splice(idx, 1); renderPreviews(); });
+    });
     overlay.__photoFiles.forEach((f, idx) => {
-      const wrap = document.createElement('div');
-      wrap.style.cssText = 'position:relative';
-      const img = document.createElement('img');
-      img.src = URL.createObjectURL(f);
-      img.style.cssText = 'width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid var(--border)';
-      const del = document.createElement('div');
-      del.textContent = '×';
-      del.style.cssText = 'position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:#c26b5d;color:#fff;font-size:12px;line-height:18px;text-align:center;cursor:pointer';
-      del.onclick = () => { overlay.__photoFiles.splice(idx, 1); renderPreviews(); };
-      wrap.appendChild(img); wrap.appendChild(del);
-      list.appendChild(wrap);
+      addThumb(URL.createObjectURL(f), () => { overlay.__photoFiles.splice(idx, 1); renderPreviews(); });
     });
   };
   overlay.__renderPhotoPreviews = renderPreviews;
@@ -2610,6 +2220,7 @@ function bindPhotoInput(overlay){
     e.target.value = '';
     renderPreviews();
   };
+  renderPreviews();
 }
 
 /* ---------- EDITOR MODAL (per type) ---------- */
@@ -2700,9 +2311,10 @@ function openEditor(key, item, isNew){
           html += `<div class="field"><label>${label}</label><input id="f-${fkey}" value="${attr(d[fkey]||'')}"/></div>`;
         }
       });
-      // 会员消费/会员储值支持照片附件（调理前后对比照 / 充值凭证）
-      if(moodKey === '会员消费' || moodKey === '会员储值'){
-        html += photoFieldHTML(moodKey === '会员消费' ? '客户实拍照片（调理前后对比，可选）' : '充值凭证截图（可选）');
+      // 会员调理/散客消费支持客户实拍（调理前后对比），会员储值传充值凭证
+      if(moodKey === '会员调理' || moodKey === '散客消费' || moodKey === '会员储值'){
+        const photoLabel = moodKey === '会员储值' ? '充值凭证截图（可选）' : '客户实拍照片（调理前后对比，可选）';
+        html += photoFieldHTML(photoLabel);
       }
       return html;
     }
@@ -2791,8 +2403,13 @@ function openEditor(key, item, isNew){
   const close=()=>overlay.remove();
   overlay.onclick=e=>{ if(e.target===overlay) close(); };
   overlay.querySelector("#m-cancel").onclick=close;
-  // 照片选择绑定（quickshop / diary / content 支持附件上传）
-  if(m.type==="quickshop" || m.type==="diary" || m.key==="content") bindPhotoInput(overlay);
+  // 照片选择绑定（编辑时回显已存照片，可删除）
+  if(m.type==="quickshop"){
+    const initMood = d.mood || (m.moods && m.moods[0]) || "";
+    if(['会员调理','散客消费','会员储值'].includes(initMood)) bindPhotoInput(overlay, d.photo);
+  } else if(m.type==="diary" || m.key==="content"){
+    bindPhotoInput(overlay, d.photo);
+  }
   // segmented pickers
   overlay.querySelectorAll(".seg").forEach(seg=>{
     const isMulti = seg.dataset.multi === "1";
@@ -2841,9 +2458,10 @@ function openEditor(key, item, isNew){
               }
             });
           });
-          // 重新绑定照片选择（动态区域重建后），并恢复已选照片预览
-          bindPhotoInput(overlay);
-          if(overlay.__renderPhotoPreviews) overlay.__renderPhotoPreviews();
+          // 重新绑定照片选择（动态区域重建后）；仅支持照片的记录类型显示，已选/已存照片保留
+          if(['会员调理','散客消费','会员储值'].includes(v)){
+            bindPhotoInput(overlay, overlay.__existingTokens || []);
+          }
         }
       });
     }
@@ -2948,18 +2566,27 @@ function openEditor(key, item, isNew){
       else if(f.type==="number") d[f.key]=Math.max(0,+val("#f-cf-"+f.key)||0);
       else d[f.key]=(val("#f-cf-"+f.key)||"").trim();
     });
-    // 照片上传：选中后立即传到飞书附件，拿到 file_token 再保存记录
-    const photoFiles = overlay.__photoFiles || [];
-    if(photoFiles.length){
-      const saveBtn = overlay.querySelector("#m-save");
-      saveBtn.disabled = true; saveBtn.textContent = "上传照片中…";
-      try {
-        const tokens = await uploadPhotosToFeishu(photoFiles, m.key, d.mood);
-        d.photo = (Array.isArray(d.photo) ? d.photo : []).concat(tokens);
-      } catch(e) {
-        saveBtn.disabled = false; saveBtn.textContent = "保存";
-        alert("照片上传失败：" + e.message + "\n记录未保存，请检查网络后重试。");
-        return;
+    // 照片：仅支持照片的类型处理（会员调理/散客消费/会员储值，以及日记/内容封面）
+    // 已存 token（可在表单里删）+ 新选文件（压缩后上传），整体覆盖写回飞书附件字段
+    const qsPhotoMoods = ['会员调理','散客消费','会员储值'];
+    const photoEnabled = m.type==="quickshop" ? qsPhotoMoods.includes(d.mood)
+                       : (m.type==="diary" || m.key==="content");
+    if(photoEnabled){
+      const existingTokens = overlay.__existingTokens || [];
+      const photoFiles = overlay.__photoFiles || [];
+      if(photoFiles.length){
+        const saveBtn = overlay.querySelector("#m-save");
+        saveBtn.disabled = true; saveBtn.textContent = "上传照片中…";
+        try {
+          const tokens = await uploadPhotosToFeishu(photoFiles, m.key, d.mood);
+          d.photo = existingTokens.concat(tokens);
+        } catch(e) {
+          saveBtn.disabled = false; saveBtn.textContent = "保存";
+          alert("照片上传失败：" + e.message + "\n记录未保存，请检查网络后重试。");
+          return;
+        }
+      } else {
+        d.photo = existingTokens;
       }
     }
     if(!editing) (data[key]=data[key]||[]).unshift(d);

@@ -171,6 +171,11 @@ function fromDate(ts) {
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
+// 东八区当天日期 YYYY-MM-DD（用于自动补完成时间）
+function todayCN() {
+  const d = new Date(Date.now() + 8 * 3600 * 1000);
+  return d.toISOString().slice(0, 10);
+}
 function toAttachment(fileTokens) {
   if (!fileTokens || !fileTokens.length) return null;
   return fileTokens.map(token => ({ file_token: token }));
@@ -247,6 +252,7 @@ async function pullTodo() {
       title: f['事项'] || '', note: f['备注'] || '',
       date: fromDate(f['日期']),
       priority, done: status === '已完成',
+      doneAt: fromDate(f['完成时间']),
       category: fromSelect(f['分类']) || '',
       updated_at: Date.now(),
     };
@@ -301,12 +307,12 @@ async function pullQuickshop() {
   const allRecords = [];
   const moodCfgs = TABLE_CONFIG.quickshop?.moodToTable || {};
   const fieldMaps = {
-    '会员消费': { customer: '客户姓名', date: '消费日期', amount: '消费金额', project: '调理项目', gift: '赠送项目', therapist: '实际调理人', feedback: '调理效果', note: '备注', photo: '客户实拍' },
+    '会员消费': { customer: '客户姓名', date: '消费日期', amount: '消费金额', project: '调理项目', gift: '赠送项目', therapist: '实际调理人', feedback: '调理效果', note: '备注' },
     '会员储值': { customer: '会员姓名', date: '充值日期', principal: '储值本金', giftAmount: '赠送金额', payMethod: '到账去向', firstTime: '是否首次储值', note: '备注', photo: '充值凭证' },
-    '散客消费': { date: '消费日期', amount: '消费金额', project: '消费项目', payMethod: '支付方式', channel: '来源渠道', level: '客户分层', nickname: '微信标识/称呼', note: '备注' },
+    '散客消费': { date: '消费日期', amount: '消费金额', project: '消费项目', payMethod: '支付方式', channel: '来源渠道', level: '客户分层', nickname: '微信标识/称呼', note: '备注', photo: '散客调理实拍' },
     '门店支出': { date: '支出日期', amount: '支出金额', category: '支出类别', payMethod: '支出方式', detail: '支出详情', note: '备注' },
     '赠送礼品': { date: '日期', customer: '姓名', category: '赠送类别', note: '备注' },
-    '会员调理': { customer: '会员姓名', date: '调理日期', sessionNum: '第几次调理', project: '调理项目', focus: '本次调理重点', beforeState: '调理前状态', effect: '调理效果', feedbackWord: '客户反馈原话', giftProject: '赠送项目', note: '备注' },
+    '会员调理': { customer: '会员姓名', date: '调理日期', sessionNum: '第几次调理', project: '调理项目', focus: '本次调理重点', beforeState: '调理前状态', effect: '调理效果', feedbackWord: '客户反馈原话', giftProject: '赠送项目', note: '备注', photo: '客户实拍' },
   };
   for (const [mood, tcfg] of Object.entries(moodCfgs)) {
     if (!tcfg || !tcfg.baseToken) continue;
@@ -440,15 +446,48 @@ async function pushTodo(records) {
   const TABLE_CONFIG = requireTableConfig();
   const cfg = TABLE_CONFIG.todo;
   if (!cfg || !cfg.baseToken) return { created: 0, updated: 0, records };
-  const { createBatch, updateBatch } = splitRecords(records, rec => ({
-    '事项': rec.title || '', '备注': rec.note || '',
-    '日期': toDate(rec.date),
-    '优先级': toSelect(rec.priority === '高' ? '高（今天必须做）' : rec.priority === '中' ? '中（尽量今天做）' : '低（有空再说）'),
-    '状态': toSelect(rec.done ? '已完成' : '待办'),
-    '分类': toSelect(rec.category || '其他'),
-  }));
+  // 以「事项+日期」为业务主键 upsert：同名同日期只更新不新建，根治重复推送产生的副本；
+  // 注意同名不同日期是合法任务（如每日例行），不能只按事项匹配
+  const remote = await fetchAllRecords(cfg.baseToken, cfg.tableId);
+  const remoteIds = new Set(remote.map(r => r.record_id));
+  const byKey = new Map();
+  for (const r of remote) {
+    const f = r.fields || {};
+    const key = `${f['事项'] || ''}|${fromDate(f['日期'])}`;
+    if (!byKey.has(key)) byKey.set(key, r.record_id);
+  }
+  const prioLabel = p => p === '高' ? '高（今天必须做）' : p === '中' ? '中（尽量今天做）' : '低（有空再说）';
+  const buildFields = rec => {
+    const fields = {
+      '事项': rec.title || '', '备注': rec.note || '',
+      '日期': toDate(rec.date),
+      '优先级': toSelect(prioLabel(rec.priority)),
+      '状态': toSelect(rec.done ? '已完成' : '待办'),
+      '分类': toSelect(rec.category || '其他'),
+      // 完成时间：勾选完成时写实际完成日期；取消勾选时显式 null 清空
+      '完成时间': rec.done ? toDate(rec.doneAt || todayCN()) : null,
+    };
+    return fields;
+  };
+  const createBatch = [];
+  const updateBatch = [];
+  const updatedRefs = [];
+  for (const rec of records) {
+    const title = (rec.title || '').trim();
+    if (!title) continue; // 空标题不入库
+    const key = `${title}|${rec.date || ''}`;
+    let rid = byKey.get(key);
+    if (!rid && rec.record_id && remoteIds.has(rec.record_id)) rid = rec.record_id;
+    if (rid) {
+      updateBatch.push({ record_id: rid, fields: buildFields(rec) });
+      updatedRefs.push({ rec, record_id: rid });
+    } else {
+      createBatch.push(buildFields(rec));
+    }
+  }
   const up = await batchUpdate(cfg.baseToken, cfg.tableId, updateBatch);
   const cr = await batchCreate(cfg.baseToken, cfg.tableId, createBatch);
+  for (const { rec, record_id } of updatedRefs) rec.record_id = record_id;
   assignRecordIds(records, cr.record_ids);
   return { created: cr.record_ids.length, updated: up.count, records };
 }
@@ -496,12 +535,12 @@ async function pushQuickshop(records) {
   let created = 0, updated = 0;
   const moodCfgs = TABLE_CONFIG.quickshop?.moodToTable || {};
   const fieldMaps = {
-    '会员消费': { customer: '客户姓名', date: '消费日期', amount: '消费金额', project: '调理项目', gift: '赠送项目', therapist: '实际调理人', feedback: '调理效果', note: '备注', photo: '客户实拍' },
+    '会员消费': { customer: '客户姓名', date: '消费日期', amount: '消费金额', project: '调理项目', gift: '赠送项目', therapist: '实际调理人', feedback: '调理效果', note: '备注' },
     '会员储值': { customer: '会员姓名', date: '充值日期', principal: '储值本金', giftAmount: '赠送金额', payMethod: '到账去向', firstTime: '是否首次储值', note: '备注', photo: '充值凭证' },
-    '散客消费': { date: '消费日期', amount: '消费金额', project: '消费项目', payMethod: '支付方式', channel: '来源渠道', level: '客户分层', nickname: '微信标识/称呼', note: '备注' },
+    '散客消费': { date: '消费日期', amount: '消费金额', project: '消费项目', payMethod: '支付方式', channel: '来源渠道', level: '客户分层', nickname: '微信标识/称呼', note: '备注', photo: '散客调理实拍' },
     '门店支出': { date: '支出日期', amount: '支出金额', category: '支出类别', payMethod: '支出方式', detail: '支出详情', note: '备注' },
     '赠送礼品': { date: '日期', customer: '姓名', category: '赠送类别', note: '备注' },
-    '会员调理': { customer: '会员姓名', date: '调理日期', sessionNum: '第几次调理', project: '调理项目', focus: '本次调理重点', beforeState: '调理前状态', effect: '调理效果', feedbackWord: '客户反馈原话', giftProject: '赠送项目', note: '备注' },
+    '会员调理': { customer: '会员姓名', date: '调理日期', sessionNum: '第几次调理', project: '调理项目', focus: '本次调理重点', beforeState: '调理前状态', effect: '调理效果', feedbackWord: '客户反馈原话', giftProject: '赠送项目', note: '备注', photo: '客户实拍' },
   };
 
   const byMood = {};
@@ -668,7 +707,12 @@ function sendJSON(res, statusCode, body) {
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
-    req.on('data', chunk => { body += chunk; });
+    let size = 0;
+    req.on('data', chunk => {
+      size += chunk.length;
+      if (size > 15 * 1024 * 1024) { reject(new Error('请求体超过 15MB 限制')); req.destroy(); return; }
+      body += chunk;
+    });
     req.on('end', () => {
       if (!body) return resolve({});
       try { resolve(JSON.parse(body)); }
@@ -676,6 +720,65 @@ function readBody(req) {
     });
     req.on('error', reject);
   });
+}
+
+// ========== 附件上传 / 图片代理 ==========
+// 根据模块找到对应 baseToken（quickshop 按记录类型分表）
+function baseTokenOfModule(moduleKey, mood) {
+  const TABLE_CONFIG = requireTableConfig();
+  if (moduleKey === 'quickshop') {
+    const tcfg = TABLE_CONFIG.quickshop?.moodToTable?.[mood];
+    return tcfg?.baseToken || null;
+  }
+  return TABLE_CONFIG[moduleKey]?.baseToken || null;
+}
+
+// 上传图片到飞书素材库（bitable_file），返回 file_token
+// 前端先压缩成 JPEG base64 再传，避免大文件超限
+async function uploadBitableFile(baseToken, fileName, buf) {
+  const boundary = '----xzzboundary' + Date.now() + Math.random().toString(16).slice(2);
+  const enc = s => Buffer.from(s, 'utf8');
+  const parts = [
+    enc(`--${boundary}\r\nContent-Disposition: form-data; name="file_name"\r\n\r\n${fileName}\r\n`),
+    enc(`--${boundary}\r\nContent-Disposition: form-data; name="parent_type"\r\n\r\nbitable_file\r\n`),
+    enc(`--${boundary}\r\nContent-Disposition: form-data; name="parent_node"\r\n\r\n${baseToken}\r\n`),
+    enc(`--${boundary}\r\nContent-Disposition: form-data; name="size"\r\n\r\n${buf.length}\r\n`),
+    Buffer.concat([
+      enc(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: image/jpeg\r\n\r\n`),
+      buf,
+      enc('\r\n'),
+    ]),
+    enc(`--${boundary}--\r\n`),
+  ];
+  const token = await getTenantAccessToken();
+  const res = await fetch('https://open.feishu.cn/open-apis/drive/v1/medias/upload_all', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+    body: Buffer.concat(parts),
+  });
+  const data = await res.json();
+  if (data.code !== 0) throw new Error(`上传飞书素材失败: ${data.code} ${data.msg}`);
+  return data.data.file_token;
+}
+
+// 代理下载飞书素材（<img> 标签无法带 Authorization，必须由云函数中转）
+async function downloadMedia(res, fileToken) {
+  const token = await getTenantAccessToken();
+  const r = await fetch(`https://open.feishu.cn/open-apis/drive/v1/medias/${encodeURIComponent(fileToken)}/download`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!r.ok) {
+    res.writeHead(r.status, { 'Access-Control-Allow-Origin': '*' });
+    return res.end();
+  }
+  const buf = Buffer.from(await r.arrayBuffer());
+  res.writeHead(200, {
+    'Content-Type': r.headers.get('content-type') || 'image/jpeg',
+    'Content-Length': buf.length,
+    'Cache-Control': 'private, max-age=3600',
+    'Access-Control-Allow-Origin': '*',
+  });
+  res.end(buf);
 }
 
 // ========== HTTP Server（腾讯云 Web 函数约定监听 0.0.0.0:9000）==========
@@ -747,10 +850,45 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // 图片上传（前端压缩后 base64 传入）；quickshop 按记录类型(mood)选表，其余按模块选表
+  if (action === 'upload' && module) {
+    let body;
+    try {
+      body = await readBody(req);
+    } catch (e) {
+      return sendJSON(res, 400, { ok: false, error: e.message });
+    }
+    try {
+      const mood = query.mood || body.mood || '';
+      const baseToken = baseTokenOfModule(module, mood);
+      if (!baseToken) return sendJSON(res, 400, { ok: false, error: `未配置的模块/记录类型: ${module} ${mood}` });
+      const buf = Buffer.from(body.dataBase64 || '', 'base64');
+      if (!buf.length) return sendJSON(res, 400, { ok: false, error: '图片数据为空' });
+      const fileName = body.fileName || `photo-${Date.now()}.jpg`;
+      const fileToken = await uploadBitableFile(baseToken, fileName, buf);
+      console.log(`[UPLOAD] mood=${query.mood} bytes=${buf.length} token=${fileToken}`);
+      return sendJSON(res, 200, { ok: true, file_token: fileToken });
+    } catch (e) {
+      console.error('[UPLOAD] error:', e.message);
+      return sendJSON(res, 500, { ok: false, error: e.message });
+    }
+  }
+
+  // 图片代理下载（<img src> 直接引用）
+  if (action === 'media' && query.token) {
+    try {
+      return await downloadMedia(res, query.token);
+    } catch (e) {
+      console.error('[MEDIA] error:', e.message);
+      res.writeHead(500, { 'Access-Control-Allow-Origin': '*' });
+      return res.end();
+    }
+  }
+
   return sendJSON(res, 400, {
     ok: false,
     error: `未知请求: action=${action}, module=${module}`,
-    hint: '支持 ?action=pull&module=todo / ?action=push&module=todo / ?action=status',
+    hint: '支持 ?action=pull&module=todo / ?action=push&module=todo / ?action=upload&module=quickshop / ?action=media&token=xxx / ?action=status',
   });
 });
 

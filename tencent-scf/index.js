@@ -13,14 +13,13 @@
  * 环境变量（在腾讯云 SCF 后台「函数配置 → 环境变量」配置）：
  *   FEISHU_APP_ID          飞书自建应用 App ID
  *   FEISHU_APP_SECRET      飞书自建应用 App Secret（禁止暴露到前端）
- *   FEISHU_REFRESH_TOKEN   飞书 user 授权后得到的 refresh_token（30 天有效）
  *   FEISHU_TABLE_CONFIG    JSON 字符串，8 个模块的 baseToken + tableId
  *
- * Token 管理：
- *   - access_token 内存缓存，过期前 5 分钟用 refresh_token 刷新
- *   - refresh_token 从环境变量读取，刷新返回的新 refresh_token 更新到内存
- *   - SCF 实例销毁后冷启动，仍可用环境变量里的 refresh_token 继续刷新（30 天内）
- *   - 30 天后需重新授权（本地启动 server.js 走 /api/auth/login 拿新 refresh_token）
+ * Token 管理（应用身份模式，2026-10-14 起）：
+ *   - 使用 tenant_access_token（应用身份），需在飞书开放平台开通
+ *     bitable:app 和 wiki 权限，并把各多维表格添加应用为协作者
+ *   - token 有效期约 2 小时，过期自动重新获取，无轮换、无作废问题
+ *   - 永久免授权：不需要 user_access_token，不再有 refresh_token 断链风险
  */
 
 const http = require('http');
@@ -29,7 +28,6 @@ const url = require('url');
 // ========== 配置加载 ==========
 const FEISHU_APP_ID = process.env.FEISHU_APP_ID;
 const FEISHU_APP_SECRET = process.env.FEISHU_APP_SECRET;
-const FEISHU_REFRESH_TOKEN_ENV = process.env.FEISHU_REFRESH_TOKEN;
 
 // 延迟加载 + 容错：环境变量配置错误时不能让整个函数启动失败，
 // 否则 9000 端口不会监听，浏览器无法访问 ?action=status 也就无法暴露错误信息
@@ -60,62 +58,35 @@ function requireTableConfig() {
   return config;
 }
 
-// ========== user_access_token 管理 ==========
-let _tokenCache = {
-  access_token: null,
-  refresh_token: FEISHU_REFRESH_TOKEN_ENV || null,
-  expires_at: 0,
-};
+// ========== tenant_access_token 管理（应用身份，无轮换） ==========
+let _tenantToken = { token: null, expires_at: 0 };
 
-async function getAppAccessToken() {
-  const res = await fetch('https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal', {
+async function getTenantAccessToken() {
+  if (_tenantToken.token && _tenantToken.expires_at > Date.now() + 300000) {
+    return _tenantToken.token;
+  }
+  if (!FEISHU_APP_ID || !FEISHU_APP_SECRET) {
+    throw new Error('NOT_AUTHORIZED: 腾讯云 SCF 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET，请在函数环境变量中填写');
+  }
+  const res = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
     body: JSON.stringify({ app_id: FEISHU_APP_ID, app_secret: FEISHU_APP_SECRET }),
   });
   const data = await res.json();
   if (data.code !== 0) {
-    throw new Error(`获取 app_access_token 失败: ${data.msg || JSON.stringify(data)}`);
+    throw new Error(`获取 tenant_access_token 失败: ${data.code} ${data.msg}`);
   }
-  return data.app_access_token;
-}
-
-async function refreshUserToken(refreshToken) {
-  const appToken = await getAppAccessToken();
-  const res = await fetch('https://open.feishu.cn/open-apis/authen/v1/refresh_access_token', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Authorization': `Bearer ${appToken}`,
-    },
-    body: JSON.stringify({ grant_type: 'refresh_token', refresh_token: refreshToken }),
-  });
-  const data = await res.json();
-  if (data.code !== 0) {
-    throw new Error(`刷新 token 失败: ${data.msg || JSON.stringify(data)}`);
-  }
-  _tokenCache = {
-    access_token: data.data.access_token,
-    refresh_token: data.data.refresh_token || refreshToken,
-    expires_at: Date.now() + (data.data.expires_in || 7200) * 1000,
+  _tenantToken = {
+    token: data.tenant_access_token,
+    expires_at: Date.now() + (data.expire || 7200) * 1000,
   };
-  console.log('[AUTH] token 已刷新，新过期时间:', new Date(_tokenCache.expires_at).toISOString());
-  return _tokenCache.access_token;
-}
-
-async function getUserAccessToken() {
-  if (_tokenCache.access_token && _tokenCache.expires_at > Date.now() + 300000) {
-    return _tokenCache.access_token;
-  }
-  if (!_tokenCache.refresh_token) {
-    throw new Error('NOT_AUTHORIZED: 腾讯云 SCF 未配置 FEISHU_REFRESH_TOKEN，请先在本地用 server.js 走授权流程拿到 refresh_token，再填到腾讯云环境变量');
-  }
-  console.log('[AUTH] access_token 已过期，正在用 refresh_token 刷新...');
-  return await refreshUserToken(_tokenCache.refresh_token);
+  console.log('[AUTH] tenant_access_token 已获取，有效期至:', new Date(_tenantToken.expires_at).toISOString());
+  return _tenantToken.token;
 }
 
 async function feishuApi(method, path, body = null) {
-  const token = await getUserAccessToken();
+  const token = await getTenantAccessToken();
   const res = await fetch(`https://open.feishu.cn/open-apis${path}`, {
     method,
     headers: {
@@ -693,8 +664,7 @@ const server = http.createServer(async (req, res) => {
       ok: true,
       message: '腾讯云 SCF Web 函数运行正常',
       time: Date.now(),
-      hasRefreshToken: !!FEISHU_REFRESH_TOKEN_ENV,
-      refresh_token_length: FEISHU_REFRESH_TOKEN_ENV ? FEISHU_REFRESH_TOKEN_ENV.length : 0,
+      authMode: 'tenant_access_token（应用身份，永久免授权）',
       hasAppId: !!FEISHU_APP_ID,
       hasAppSecret: !!FEISHU_APP_SECRET,
       hasTableConfig: !!config,
@@ -749,8 +719,8 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`[SCF Web 函数] 监听 ${HOST}:${PORT}`);
-  console.log(`[SCF Web 函数] refresh_token: ${FEISHU_REFRESH_TOKEN_ENV ? '已配置' : '未配置（待填）'}`);
+  console.log(`[SCF Web 函数] 监听 ${HOST}:${PORT}（应用身份 tenant_access_token 模式）`);
+  console.log(`[SCF Web 函数] APP_ID: ${FEISHU_APP_ID ? '已配置' : '未配置'}`);
   console.log(`[SCF Web 函数] TABLE_CONFIG: ${process.env.FEISHU_TABLE_CONFIG ? `已配置（${process.env.FEISHU_TABLE_CONFIG.length} 字节）` : '未配置'}`);
 });
 

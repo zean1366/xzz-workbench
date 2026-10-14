@@ -141,6 +141,20 @@ async function batchUpdate(baseToken, tableId, records) {
   return { count: records.length };
 }
 
+async function batchDelete(baseToken, tableId, recordIds) {
+  if (recordIds.length === 0) return { count: 0 };
+  let count = 0;
+  for (let i = 0; i < recordIds.length; i += 500) {
+    const chunk = recordIds.slice(i, i + 500);
+    const data = await feishuApi('POST', `/bitable/v1/apps/${baseToken}/tables/${tableId}/records/batch_delete`, { records: chunk });
+    if (data.code !== 0) {
+      throw new Error(`批量删除失败: ${data.msg || JSON.stringify(data)}`);
+    }
+    count += chunk.length;
+  }
+  return { count };
+}
+
 // ========== 字段格式转换工具 ==========
 function toSelect(val) { return val || null; }
 function fromSelect(val) {
@@ -184,12 +198,6 @@ function fromAttachment(val) {
   if (!val) return [];
   if (Array.isArray(val)) return val.map(v => v.file_token || v).filter(Boolean);
   return [];
-}
-function toCheckinLog(log) {
-  if (!log || typeof log !== 'object') return '';
-  // 存为可读日期串：「2026-10-13、2026-10-14」，飞书表里直接能看懂
-  const days = Object.keys(log).filter(d => log[d]).sort();
-  return days.length ? days.join('、') : '';
 }
 function fromCheckinLog(val) {
   if (!val) return {};
@@ -439,17 +447,46 @@ async function pullPeriod() {
   });
 }
 
+// 打卡明细表（与习惯主表同 base）：一行 = 某天打了某个习惯，飞书里用日历视图按月翻看。
+// 表 ID 写死兜底，环境变量无需新增配置；若环境变量里配了 checkinDetail 则优先用配置
+const CHECKIN_DETAIL_TABLE_ID = 'tbl06opr4nCwgg9N';
+function checkinDetailCfg(TABLE_CONFIG) {
+  const cfg = TABLE_CONFIG.checkin;
+  return (TABLE_CONFIG.checkinDetail && TABLE_CONFIG.checkinDetail.tableId)
+    ? TABLE_CONFIG.checkinDetail
+    : { baseToken: cfg.baseToken, tableId: CHECKIN_DETAIL_TABLE_ID };
+}
+// 明细行日期字段（毫秒时间戳）→ 东八区 YYYY-MM-DD
+function detailDay(ms) {
+  return new Date(ms + 8 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
 async function pullCheckin() {
   const TABLE_CONFIG = requireTableConfig();
   const cfg = TABLE_CONFIG.checkin;
   if (!cfg || !cfg.baseToken) return [];
-  const records = await fetchAllRecords(cfg.baseToken, cfg.tableId);
+  // 习惯清单来自主表；打卡明细从明细表按行聚合成 { 习惯: { 日期: true } }
+  let detailOk = true;
+  const [records, detailRows] = await Promise.all([
+    fetchAllRecords(cfg.baseToken, cfg.tableId),
+    fetchAllRecords(cfg.baseToken, checkinDetailCfg(TABLE_CONFIG).tableId).catch(() => { detailOk = false; return []; }),
+  ]);
+  const logMap = {};
+  for (const r of detailRows) {
+    const f = r.fields || {};
+    const title = fromSelect(f['习惯名称']).trim();
+    const ms = f['打卡日期'];
+    if (!title || !ms) continue;
+    (logMap[title] = logMap[title] || {})[detailDay(ms)] = true;
+  }
   return records.map(r => {
     const f = r.fields || {};
+    const title = String(f['习惯名称'] || '').trim();
     return {
       id: r.record_id, record_id: r.record_id,
-      title: f['习惯名称'] || '',
-      log: fromCheckinLog(f['打卡记录']),
+      title,
+      // 明细表拿不到时才回退旧的长文本列；明细表正常时它就是唯一事实来源（空=没打）
+      log: detailOk ? (logMap[title] || {}) : fromCheckinLog(f['打卡记录']),
       autoCheck: fromSelect(f['自动关联模块']) || '',
       updated_at: Date.now(),
     };
@@ -670,24 +707,38 @@ async function pushCheckin(records) {
   const TABLE_CONFIG = requireTableConfig();
   const cfg = TABLE_CONFIG.checkin;
   if (!cfg || !cfg.baseToken) return { created: 0, updated: 0, records };
-  // 以「习惯名称」为业务主键 upsert：本地 record_id 失效（如云端清空过）时自动按名称匹配，
-  // 云端没有同名习惯才新建——根治重复习惯与死 record_id 更新失败问题
+  // 主表：以「习惯名称」为业务主键 upsert，只维护清单和统计列；
+  // 长文本「打卡记录」列停用，按月明细由「打卡明细」表承担（一行=某天某习惯）
   const remote = await fetchAllRecords(cfg.baseToken, cfg.tableId);
   const byTitle = new Map();
   for (const r of remote) {
     const t = (r.fields || {})['习惯名称'];
     if (t && !byTitle.has(t)) byTitle.set(t, r.record_id);
   }
+  // 明细表对账：现有行按「习惯|日期」建索引，目标缺行则补建，多出的行（取消勾选）删除
+  const detailCfg = checkinDetailCfg(TABLE_CONFIG);
+  const detailRows = await fetchAllRecords(detailCfg.baseToken, detailCfg.tableId).catch(() => []);
+  const detailByKey = new Map(); // '习惯|YYYY-MM-DD' -> record_id
+  for (const r of detailRows) {
+    const f = r.fields || {};
+    const t = fromSelect(f['习惯名称']).trim();
+    const ms = f['打卡日期'];
+    if (t && ms) detailByKey.set(t + '|' + detailDay(ms), r.record_id);
+  }
   const createBatch = [];
   const updateBatch = [];
   const updatedRefs = []; // [{ rec, record_id }] 更新成功后回填本地
+  const detailCreate = [];
+  const detailDelete = [];
+  const targetKeys = new Set();
+  const syncedTitles = new Set();
   for (const rec of records) {
     const title = (rec.title || '').trim();
     if (!title) continue; // 空标题不入库，避免云端出现空白行
+    syncedTitles.add(title);
     const st = checkinStats(rec.log);
     const fields = {
       '习惯名称': title,
-      '打卡记录': toCheckinLog(rec.log),
       '自动关联模块': toSelect(rec.autoCheck || ''),
       '打卡天数': st.count,
       '连续打卡': st.streak,
@@ -700,9 +751,29 @@ async function pushCheckin(records) {
     } else {
       createBatch.push(fields);
     }
+    for (const day of Object.keys(rec.log || {})) {
+      if (!rec.log[day]) continue;
+      const key = title + '|' + day;
+      targetKeys.add(key);
+      if (!detailByKey.has(key)) {
+        detailCreate.push({ '习惯名称': title, '打卡日期': new Date(day + 'T00:00:00+08:00').getTime() });
+      }
+    }
+  }
+  for (const [key, rid] of detailByKey) {
+    const t = key.slice(0, key.lastIndexOf('|'));
+    if (rid && syncedTitles.has(t) && !targetKeys.has(key)) detailDelete.push(rid);
   }
   const up = await batchUpdate(cfg.baseToken, cfg.tableId, updateBatch);
   const cr = await batchCreate(cfg.baseToken, cfg.tableId, createBatch);
+  await batchCreate(detailCfg.baseToken, detailCfg.tableId, detailCreate).catch(e => {
+    console.error('[checkin] 明细补建失败(不影响主表):', e.message);
+  });
+  if (detailDelete.length) {
+    await batchDelete(detailCfg.baseToken, detailCfg.tableId, detailDelete).catch(e => {
+      console.error('[checkin] 明细清理失败(不影响主表):', e.message);
+    });
+  }
   for (const { rec, record_id } of updatedRefs) {
     rec.record_id = record_id;
   }

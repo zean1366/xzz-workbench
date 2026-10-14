@@ -5,11 +5,19 @@ node_modules/
 Thumbs.db
 
 # ===== 敏感配置（请勿提交到代码仓库）=====
-# 飞书多维表格配置（含 baseToken）
+# 飞书多维表格配置（含 APP_SECRET 和 baseToken）
 sync-config.js
-# 云端数据检查脚本（含 Supabase key）
-check-cloud.js
-# 前端应用配置（含所有 API Key）
+# 前端应用配置（含 DeepSeek Key、Netlify 地址）
 app-config.js
 # 临时测试脚本
 _temp_*.js
+_test_*.js
+# OAuth token 缓存（含 user_access_token，敏感）
+.token-cache.json
+# 腾讯云 SCF 构建产物与本地测试配置（含表 token，不入库）
+tencent-scf/dist/
+tencent-scf/xizizi-scf-web.zip
+tencent-scf/test-config.json
+# 一次性临时脚本
+_pull_now.js
+import-feishu-data.js

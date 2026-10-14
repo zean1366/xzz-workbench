@@ -1,0 +1,12 @@
+# Netlify 配置：云函数（飞书同步后端）+ 静态站点
+# 前端页面仍由 GitHub Pages 托管，Netlify 只用它的 Functions 云函数能力
+
+[build]
+  # 站点内容用 dist/（由 node build.js 生成）
+  publish = "dist"
+  command = "node build.js"
+
+[functions]
+  # 云函数目录：netlify/functions/
+  directory = "netlify/functions"
+  node_bundler = "esbuild"

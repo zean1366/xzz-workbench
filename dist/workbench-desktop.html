@@ -716,10 +716,14 @@
    ============================================================ */
 // 从外部配置文件读取敏感密钥（app-config.js，不提交到代码仓库）
 // 如果没有配置文件，则使用空值，对应功能降级
+// 飞书多维表格是唯一数据源（通过本地 server.js / Netlify Functions 中转，不在前端暴露密钥）
 const _cfg = window.APP_CONFIG || {};
-const SUPABASE_URL = _cfg.SUPABASE_URL || "";
-const SUPABASE_KEY = _cfg.SUPABASE_KEY || "";
 const DEEPSEEK_KEY = _cfg.DEEPSEEK_KEY || "";
+
+// Netlify 云函数站点地址（前端托管在 GitHub Pages，云函数部署在 Netlify，跨域调用必须用绝对地址）
+// 【部署时必填】把下面地址改成你自己的 Netlify 站点名，例如：https://xzz-workbench.netlify.app
+// 也可以在 app-config.js 里配置 window.APP_CONFIG.NETLIFY_API_BASE 覆盖
+const NETLIFY_API_BASE = _cfg.NETLIFY_API_BASE || 'https://你的站点名.netlify.app';
 
 const CONFIG = {
   version: "20261010-1",
@@ -1020,12 +1024,9 @@ const store = {
   }
 };
 
-// 同步方向配置
-// pullModules: 飞书 → 工作台（只读，从飞书拉到本地）
-// pushModules: 工作台 → 飞书（只写，从本地推到飞书）
-const FEISHU_PULL_MODULES = ['todo', 'weeklylearn'];
-const FEISHU_PUSH_MODULES = ['quickshop', 'money', 'period'];
-const FEISHU_ALL_MODULES = [...FEISHU_PULL_MODULES, ...FEISHU_PUSH_MODULES];
+// 同步方向配置：飞书多维表格为唯一数据源
+// 所有模块都支持双向读写：先 pull 再 push，飞书 ↔ 工作台
+const FEISHU_ALL_MODULES = ['todo', 'weeklylearn', 'content', 'quickshop', 'money', 'period', 'diary', 'checkin'];
 
 // 同步 API 地址（自动适配本地和 Netlify 云函数）
 function syncApiUrl(type, module) {
@@ -1033,8 +1034,8 @@ function syncApiUrl(type, module) {
   if(isLocal) {
     return `/api/sync/${type}/${module}`;
   } else {
-    // Netlify Functions
-    return `/.netlify/functions/sync-${type}/${module}`;
+    // Netlify Functions（GitHub Pages 前端跨域调用，必须用绝对地址）
+    return `${NETLIFY_API_BASE}/.netlify/functions/sync-${type}/${module}`;
   }
 }
 
@@ -1059,7 +1060,7 @@ const syncManager = {
     return m ? m.name : key;
   },
   
-  // 从飞书拉取（拉取型模块：飞书→工作台）
+  // 从飞书拉取（飞书→工作台，合并本地未同步的新记录）
   async pullFromFeishu(modKey) {
     try {
       const res = await fetch(syncApiUrl('pull', modKey));
@@ -1077,7 +1078,11 @@ const syncManager = {
           seen.add(key);
           return true;
         });
-        data[modKey] = deduped;
+        // 本地新增但还没推送到飞书的记录（没有 record_id），拉取时保留，避免被覆盖
+        const localPending = (data[modKey] || []).filter(r => !r.record_id);
+        const remoteKeys = new Set(deduped.map(r => `${r.title}|${r.date||''}|${r.priority||''}|${r.category||''}`));
+        const pendingKeep = localPending.filter(r => !remoteKeys.has(`${r.title}|${r.date||''}|${r.priority||''}|${r.category||''}`));
+        data[modKey] = [...deduped, ...pendingKeep];
         const removed = result.records.length - deduped.length;
         if(removed > 0) console.log(`[同步] ${modKey} 去重了 ${removed} 条重复记录`);
         return { ok: true, count: deduped.length };
@@ -1097,50 +1102,46 @@ const syncManager = {
     return { ok: false, error: result.error };
   },
   
-  // 全量同步：先拉取，再推送
-  async syncAll() {
+  // 全量同步：先把本地改动推到飞书，再从飞书拉最新数据（飞书是唯一数据源）
+  // quiet=true 时静默同步（轮询用），不闪烁状态提示
+  async syncAll(quiet) {
     if(this.isSyncing) return;
     this.isSyncing = true;
-    
+    const mods = FEISHU_ALL_MODULES;
+
     let totalPulled = 0, totalCreated = 0, totalUpdated = 0;
     let hasError = false;
     const errors = [];
-    
-    // 1. 拉取型模块：飞书→工作台
-    for(let i = 0; i < FEISHU_PULL_MODULES.length; i++) {
-      const modKey = FEISHU_PULL_MODULES[i];
-      this.setStatus('syncing', `拉取中 (${i+1}/${FEISHU_PULL_MODULES.length}) ${this.getModuleName(modKey)}`);
-      
+
+    // 1. 推送：工作台本地改动 → 飞书
+    for(let i = 0; i < mods.length; i++) {
+      const modKey = mods[i];
+      if(!quiet) this.setStatus('syncing', `上传中 (${i+1}/${mods.length}) ${this.getModuleName(modKey)}`);
+      const result = await this.pushToFeishu(modKey);
+      if(result.ok) {
+        totalCreated += result.created || 0;
+        totalUpdated += result.updated || 0;
+      } else {
+        // 未配置的模块（返回 records 原样）不算错误
+        if(result.error) { hasError = true; errors.push({ module: modKey, error: result.error }); }
+      }
+      await new Promise(r => setTimeout(r, 150));
+    }
+
+    // 2. 拉取：飞书最新数据 → 工作台
+    for(let i = 0; i < mods.length; i++) {
+      const modKey = mods[i];
+      if(!quiet) this.setStatus('syncing', `拉取中 (${i+1}/${mods.length}) ${this.getModuleName(modKey)}`);
       const result = await this.pullFromFeishu(modKey);
-      
       if(result.ok) {
         totalPulled += result.count || 0;
       } else {
         hasError = true;
         errors.push({ module: modKey, error: result.error });
       }
-      
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise(r => setTimeout(r, 150));
     }
-    
-    // 2. 推送型模块：工作台→飞书
-    for(let i = 0; i < FEISHU_PUSH_MODULES.length; i++) {
-      const modKey = FEISHU_PUSH_MODULES[i];
-      this.setStatus('syncing', `上传中 (${i+1}/${FEISHU_PUSH_MODULES.length}) ${this.getModuleName(modKey)}`);
-      
-      const result = await this.pushToFeishu(modKey);
-      
-      if(result.ok) {
-        totalCreated += result.created || 0;
-        totalUpdated += result.updated || 0;
-      } else {
-        hasError = true;
-        errors.push({ module: modKey, error: result.error });
-      }
-      
-      await new Promise(r => setTimeout(r, 200));
-    }
-    
+
     // 保存本地数据并刷新
     // 自动打卡：同步后检查哪些习惯应该自动打勾
     if(data.checkin) {
@@ -1158,44 +1159,85 @@ const syncManager = {
     }
     localStorage.setItem(CONFIG.storageKey, JSON.stringify(data));
     render();
-    
+
     if(!hasError) {
       this.lastSyncTime = new Date();
       const summary = [];
       if(totalPulled > 0) summary.push(`拉取${totalPulled}条`);
       if(totalCreated > 0) summary.push(`新建${totalCreated}条`);
       if(totalUpdated > 0) summary.push(`更新${totalUpdated}条`);
-      this.setStatus('success', summary.length ? summary.join(' · ') : '已是最新');
+      if(!quiet) this.setStatus('success', summary.length ? summary.join(' · ') : '已是最新');
     } else {
       this.setStatus('error', '部分模块同步失败');
       console.warn('Sync errors:', errors);
     }
-    
-    setTimeout(() => this.setStatus('', '准备就绪'), 3000);
+
+    if(!quiet) setTimeout(() => this.setStatus('', '准备就绪'), 3000);
     this.isSyncing = false;
   },
-  
-  // 保存后推送（只针对推送型模块）
+
+  // 仅拉取（轮询用，静默）
+  async pullAllQuiet() {
+    if(this.isSyncing) return;
+    this.isSyncing = true;
+    let hasError = false;
+    for(const modKey of FEISHU_ALL_MODULES) {
+      const result = await this.pullFromFeishu(modKey);
+      if(!result.ok) { hasError = true; console.warn(`[轮询] ${modKey} 拉取失败:`, result.error); }
+      await new Promise(r => setTimeout(r, 120));
+    }
+    if(data.checkin) {
+      const t = today();
+      data.checkin.forEach(habit => {
+        if(!habit.autoCheck) return;
+        const records = data[habit.autoCheck] || [];
+        if(records.some(r => r.date === t) && !habit.log?.[t]) {
+          habit.log = habit.log || {};
+          habit.log[t] = true;
+        }
+      });
+    }
+    localStorage.setItem(CONFIG.storageKey, JSON.stringify(data));
+    render();
+    this.lastSyncTime = new Date();
+    this.isSyncing = false;
+  },
+
+  // 保存后推送单个模块（表单提交后立即写入飞书）
   async pushModule(moduleKey) {
     if(this.isSyncing) return;
-    if(!FEISHU_PUSH_MODULES.includes(moduleKey)) return;
-    
+    if(!FEISHU_ALL_MODULES.includes(moduleKey)) return;
+
     this.isSyncing = true;
     this.setStatus('syncing', '正在上传...');
-    
+
     const result = await this.pushToFeishu(moduleKey);
-    
+
     if(result.ok) {
       this.lastSyncTime = new Date();
       this.setStatus('success', '已同步');
     } else {
       this.setStatus('error', '同步失败');
     }
-    
+
     setTimeout(() => this.setStatus('', '准备就绪'), 2000);
     this.isSyncing = false;
   },
-  
+
+  // 仅推送（本地改动后防抖调用，静默）
+  async pushAllQuiet() {
+    if(this.isSyncing) return;
+    this.isSyncing = true;
+    for(const modKey of FEISHU_ALL_MODULES) {
+      const result = await this.pushToFeishu(modKey);
+      if(!result.ok && result.error) console.warn(`[推送] ${modKey} 失败:`, result.error);
+      await new Promise(r => setTimeout(r, 120));
+    }
+    localStorage.setItem(CONFIG.storageKey, JSON.stringify(data));
+    this.lastSyncTime = new Date();
+    this.isSyncing = false;
+  },
+
   async syncNow() {
     await this.syncAll();
   }
@@ -1241,23 +1283,38 @@ function autoCheckHabits() {
   if(changed) { store.save(); render(); }
 }
 
-// 防抖同步：保存后延迟同步，避免频繁操作时重复请求
+// 防抖同步：保存后延迟推送本地改动到飞书，避免频繁操作时重复请求
 let _syncTimer = null;
 function scheduleSync() {
   if(!CONFIG.cloudSync) return;
   if(_syncTimer) clearTimeout(_syncTimer);
   _syncTimer = setTimeout(() => {
     if(!syncManager.isSyncing) {
-      syncManager.syncAll();
+      syncManager.pushAllQuiet();
     }
-  }, 5000); // 5秒后自动同步
+  }, 3000); // 3秒后自动推送
+}
+
+// 轮询：每 15 秒从飞书拉取最新数据（手机/电脑接近实时同步）
+const SYNC_POLL_INTERVAL = 15000;
+let _pollTimer = null;
+function startSyncPolling() {
+  if(!CONFIG.cloudSync) return;
+  if(_pollTimer) clearInterval(_pollTimer);
+  _pollTimer = setInterval(() => {
+    // 页面隐藏时暂停轮询，节省请求
+    if(document.hidden) return;
+    if(!syncManager.isSyncing) {
+      syncManager.pullAllQuiet();
+    }
+  }, SYNC_POLL_INTERVAL);
 }
 
 // 页面加载后自动与飞书同步
 async function initCloudSync(){
   if(!CONFIG.cloudSync) return;
-  // 延迟一点，确保页面先渲染
-  setTimeout(() => syncManager.syncAll(), 1000);
+  // 延迟一点，确保页面先渲染；首次做全量同步（推+拉），之后定时轮询
+  setTimeout(() => { syncManager.syncAll(); startSyncPolling(); }, 1000);
 }
 function pad2(n){ return String(n).padStart(2,"0"); }
 
@@ -2425,6 +2482,62 @@ function openReader(key, item) {
   overlay.querySelector("#r-del").onclick = () => { close(); confirmDelete(key, item.id); };
 }
 
+/* ---------- 照片上传（quickshop / diary / content 支持附件） ---------- */
+function uploadApiUrl(){
+  const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  return isLocal ? '/api/sync/upload' : `${NETLIFY_API_BASE}/.netlify/functions/sync-upload`;
+}
+async function uploadPhotosToFeishu(files, moduleKey, mood){
+  const tokens = [];
+  for(const file of files){
+    const fd = new FormData();
+    fd.append('metadata', JSON.stringify({ module: moduleKey, mood: mood || '' }));
+    fd.append('file', file, file.name);
+    const res = await fetch(uploadApiUrl(), { method: 'POST', body: fd });
+    const result = await res.json();
+    if(!result.ok) throw new Error(result.error || '上传失败');
+    tokens.push(result.file_token);
+  }
+  return tokens;
+}
+// 照片选择字段 HTML（本地预览，保存时才上传）
+function photoFieldHTML(label){
+  return `<div class="field"><label>${label || '照片（可选）'}</label>
+    <input type="file" id="f-photo" accept="image/*" multiple style="font-size:13px"/>
+    <div id="f-photo-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"></div>
+    <div class="sub" style="margin:4px 0 0">选择后显示预览，点保存时自动上传到飞书附件</div></div>`;
+}
+// 绑定照片选择：本地预览，不立即上传
+function bindPhotoInput(overlay){
+  const input = overlay.querySelector('#f-photo');
+  if(!input) return;
+  overlay.__photoFiles = overlay.__photoFiles || [];
+  const list = overlay.querySelector('#f-photo-list');
+  const renderPreviews = () => {
+    if(!list) return;
+    list.innerHTML = '';
+    overlay.__photoFiles.forEach((f, idx) => {
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'position:relative';
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(f);
+      img.style.cssText = 'width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid var(--border)';
+      const del = document.createElement('div');
+      del.textContent = '×';
+      del.style.cssText = 'position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:#c26b5d;color:#fff;font-size:12px;line-height:18px;text-align:center;cursor:pointer';
+      del.onclick = () => { overlay.__photoFiles.splice(idx, 1); renderPreviews(); };
+      wrap.appendChild(img); wrap.appendChild(del);
+      list.appendChild(wrap);
+    });
+  };
+  overlay.__renderPhotoPreviews = renderPreviews;
+  input.onchange = e => {
+    Array.from(e.target.files || []).forEach(f => overlay.__photoFiles.push(f));
+    e.target.value = '';
+    renderPreviews();
+  };
+}
+
 /* ---------- EDITOR MODAL (per type) ---------- */
 function openEditor(key, item, isNew){
   const m=modOf(key); const editing=!!item && !isNew;
@@ -2513,6 +2626,10 @@ function openEditor(key, item, isNew){
           html += `<div class="field"><label>${label}</label><input id="f-${fkey}" value="${attr(d[fkey]||'')}"/></div>`;
         }
       });
+      // 会员消费/会员储值支持照片附件（调理前后对比照 / 充值凭证）
+      if(moodKey === '会员消费' || moodKey === '会员储值'){
+        html += photoFieldHTML(moodKey === '会员消费' ? '客户实拍照片（调理前后对比，可选）' : '充值凭证截图（可选）');
+      }
       return html;
     }
     
@@ -2522,7 +2639,8 @@ function openEditor(key, item, isNew){
     window.__renderQSFields = renderQuickshopFields;
   } else if(m.type==="diary"){
     fields=`<div class="field"><label>内容</label><textarea id="f-content" rows="8" placeholder="今天发生了什么？想到啥写啥…">${esc(d.content||'')}</textarea></div>
-      <div class="field"><label>日期</label><div class="date-cn-wrap"><input id="f-date" type="date" value="${d.date||isoToday()}" onchange="this.parentElement.querySelector('.date-cn-text').textContent=cnDate(this.value)"/><span class="date-cn-text">${cnDate(d.date||isoToday())}</span></div></div>`;
+      <div class="field"><label>日期</label><div class="date-cn-wrap"><input id="f-date" type="date" value="${d.date||isoToday()}" onchange="this.parentElement.querySelector('.date-cn-text').textContent=cnDate(this.value)"/><span class="date-cn-text">${cnDate(d.date||isoToday())}</span></div></div>
+      ${photoFieldHTML('随手拍摄照片（可选）')}`;
   } else if(m.type==="weekly"){
     const cats = m.categories || [];
     const prios = m.priorities || [];
@@ -2573,7 +2691,8 @@ function openEditor(key, item, isNew){
     fields=`<div class="field"><label>阶段</label><div class="seg" style="flex-wrap:wrap" id="f-stage">${stages.map(s=>`<div class="opt ${s===d.stage?'on':''}" data-v="${attr(s)}" style="flex:0 0 auto">${s}</div>`).join("")}</div></div>
       <div class="field"><label>标题</label><input id="f-title" value="${attr(d.title)}" placeholder="给这条内容起个标题"/></div>
       <div class="field"><label>内容</label><textarea id="f-content" rows="8" placeholder="写点什么…">${esc(d.content||'')}</textarea></div>
-      <div class="field"><label>日期</label><div class="date-cn-wrap"><input id="f-date" type="date" value="${d.date||isoToday()}" onchange="this.parentElement.querySelector('.date-cn-text').textContent=cnDate(this.value)"/><span class="date-cn-text">${cnDate(d.date||isoToday())}</span></div></div>`;
+      <div class="field"><label>日期</label><div class="date-cn-wrap"><input id="f-date" type="date" value="${d.date||isoToday()}" onchange="this.parentElement.querySelector('.date-cn-text').textContent=cnDate(this.value)"/><span class="date-cn-text">${cnDate(d.date||isoToday())}</span></div></div>
+      ${photoFieldHTML('视频封面图（可选）')}`;
   } else { // note
     fields=`<div class="field"><label>标题</label><input id="f-title" value="${attr(d.title)}" placeholder="给这条起个名"/></div>
       ${(m.moods&&m.moods.length)?`<div class="field"><label>标签 / 心情</label><div class="seg" id="f-mood">${m.moods.map(md=>`<div class="opt ${md===d.mood?'on':''}" data-v="${attr(md)}" style="flex:0 0 auto">${md}</div>`).join("")}</div></div>`:''}
@@ -2598,6 +2717,8 @@ function openEditor(key, item, isNew){
   const close=()=>overlay.remove();
   overlay.onclick=e=>{ if(e.target===overlay) close(); };
   overlay.querySelector("#m-cancel").onclick=close;
+  // 照片选择绑定（quickshop / diary / content 支持附件上传）
+  if(m.type==="quickshop" || m.type==="diary" || m.key==="content") bindPhotoInput(overlay);
   // segmented pickers
   overlay.querySelectorAll(".seg").forEach(seg=>{
     const isMulti = seg.dataset.multi === "1";
@@ -2646,6 +2767,9 @@ function openEditor(key, item, isNew){
               }
             });
           });
+          // 重新绑定照片选择（动态区域重建后），并恢复已选照片预览
+          bindPhotoInput(overlay);
+          if(overlay.__renderPhotoPreviews) overlay.__renderPhotoPreviews();
         }
       });
     }
@@ -2664,7 +2788,7 @@ function openEditor(key, item, isNew){
     }
   }
   if(editing) overlay.querySelector("#m-del").onclick=()=>{ close(); confirmDelete(key, d.id); };
-  overlay.querySelector("#m-save").onclick=()=>{
+  overlay.querySelector("#m-save").onclick=async ()=>{
     const val=id=>{ const el=overlay.querySelector(id); return el?el.value:undefined; };
     const seg=id=>{ const el=overlay.querySelector(id+" .on"); return el?el.dataset.v:undefined; };
     const multiSeg=id=>{ return Array.from(overlay.querySelectorAll(id+" .opt.on")).map(el=>el.dataset.v); };
@@ -2750,6 +2874,20 @@ function openEditor(key, item, isNew){
       else if(f.type==="number") d[f.key]=Math.max(0,+val("#f-cf-"+f.key)||0);
       else d[f.key]=(val("#f-cf-"+f.key)||"").trim();
     });
+    // 照片上传：选中后立即传到飞书附件，拿到 file_token 再保存记录
+    const photoFiles = overlay.__photoFiles || [];
+    if(photoFiles.length){
+      const saveBtn = overlay.querySelector("#m-save");
+      saveBtn.disabled = true; saveBtn.textContent = "上传照片中…";
+      try {
+        const tokens = await uploadPhotosToFeishu(photoFiles, m.key, d.mood);
+        d.photo = (Array.isArray(d.photo) ? d.photo : []).concat(tokens);
+      } catch(e) {
+        saveBtn.disabled = false; saveBtn.textContent = "保存";
+        alert("照片上传失败：" + e.message + "\n记录未保存，请检查网络后重试。");
+        return;
+      }
+    }
     if(!editing) (data[key]=data[key]||[]).unshift(d);
     persist(); close();
   };

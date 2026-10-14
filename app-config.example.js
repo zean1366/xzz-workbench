@@ -7,9 +7,9 @@
    ============================================================ */
 
 window.APP_CONFIG = {
-  // Supabase 云端同步配置（用于多设备数据同步）
-  SUPABASE_URL: "你的 Supabase 项目 URL",
-  SUPABASE_KEY: "你的 Supabase anon key",
+  // Netlify 云函数站点地址（飞书同步走 Netlify Functions，密钥存在 Netlify 环境变量里）
+  // 部署 Netlify 后把这里改成你的站点地址，例如：https://xzz-workbench.netlify.app
+  NETLIFY_API_BASE: "https://你的站点名.netlify.app",
 
   // DeepSeek API 配置（用于语音记账智能分类）
   // 注意：这是付费 API，请妥善保管，不要泄露给他人

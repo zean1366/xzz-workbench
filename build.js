@@ -2,9 +2,10 @@
  * 构建脚本：生成用于公开部署的版本
  * 输出到 dist/ 目录
  * 
- * 注意：所有敏感密钥（Supabase Key、DeepSeek Key 等）
+ * 注意：所有敏感密钥（DeepSeek Key 等）
  * 都从 app-config.js 读取，该文件不提交到代码仓库。
- * 部署时需要自行创建 app-config.js 并填入密钥。
+ * 飞书密钥（APP_ID/APP_SECRET）只存在 sync-config.js（本地）和
+ * Netlify 环境变量（线上）中，绝不进入前端代码。
  */
 
 const fs = require('fs');

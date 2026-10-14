@@ -530,6 +530,7 @@ const pushers = {
 function pull(module) {
   const fn = pullers[module];
   if (!fn) return { ok: false, error: `不支持的模块: ${module}` };
+  if (!CONFIG[module]) return { ok: true, records: [] };
   try { return fn(); }
   catch (e) { console.error(`Pull ${module} error:`, e); return { ok: false, error: e.message }; }
 }
@@ -537,6 +538,7 @@ function pull(module) {
 function push(module, records) {
   const fn = pushers[module];
   if (!fn) return { ok: false, error: `不支持的模块: ${module}` };
+  if (!CONFIG[module]) return { ok: true, created: 0, updated: 0, errors: [], records: records || [] };
   try { return fn(records); }
   catch (e) { console.error(`Push ${module} error:`, e); return { ok: false, error: e.message }; }
 }

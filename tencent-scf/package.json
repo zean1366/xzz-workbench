@@ -1,0 +1,11 @@
+{
+  "name": "xizizi-workbench-scf-web",
+  "version": "1.0.0",
+  "description": "喜姿姿工作台 · 腾讯云 SCF Web 函数（飞书多维表格读写代理）",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {},
+  "private": true
+}

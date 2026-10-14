@@ -33,8 +33,7 @@ jobs:
         run: |
           cat > dist/app-config.js << 'EOF'
           window.APP_CONFIG = {
-            SUPABASE_URL: "${{ secrets.SUPABASE_URL }}",
-            SUPABASE_KEY: "${{ secrets.SUPABASE_KEY }}",
+            NETLIFY_API_BASE: "${{ secrets.NETLIFY_API_BASE }}",
             DEEPSEEK_KEY: "${{ secrets.DEEPSEEK_KEY }}",
             cloudSync: true
           };

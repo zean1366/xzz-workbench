@@ -700,7 +700,7 @@ const _cfg = window.APP_CONFIG || {};
 const SCF_API_BASE = _cfg.SCF_API_BASE || 'https://1505420925-1b0zb10qzb.ap-guangzhou.tencentscf.com';
 
 const CONFIG = {
-  version: "20261010-1",
+  version: "20261015-1",
   storageKey: "xizizi-workbench-v1",
   owner: "喜姿姿",
   slogan: "养生 · 内容 · 成长",
@@ -980,6 +980,9 @@ const store = {
 // 同步方向配置：飞书多维表格为唯一数据源
 // 所有模块都支持双向读写：先 pull 再 push，飞书 ↔ 工作台
 const FEISHU_ALL_MODULES = ['todo', 'weeklylearn', 'content', 'quickshop', 'money', 'period', 'diary', 'checkin'];
+// 只从飞书拉取的模块：待办、一周主题、打卡（打卡必须拉，否则换设备打卡会清掉明细历史）。
+// 其余模块（门店随手记/生活收支/内容/经期/日记）只在工作台记录、往飞书推送，不导入飞书历史，板块保持干净
+const FEISHU_PULL_MODULES = ['todo', 'weeklylearn', 'checkin'];
 
 // 同步 API 地址（默认全部走腾讯云 SCF，手机/电脑统一云端链路，电脑无需开机）
 // 本地兜底：在 app-config.js 把 USE_LOCAL_FALLBACK 设为 true，且访问 localhost 时走本地 server.js
@@ -1179,10 +1182,10 @@ const syncManager = {
       await new Promise(r => setTimeout(r, 150));
     }
 
-    // 2. 拉取：飞书最新数据 → 工作台
-    for(let i = 0; i < mods.length; i++) {
-      const modKey = mods[i];
-      if(!quiet) this.setStatus('syncing', `拉取中 (${i+1}/${mods.length}) ${this.getModuleName(modKey)}`);
+    // 2. 拉取：飞书最新数据 → 工作台（只拉白名单模块）
+    for(let i = 0; i < FEISHU_PULL_MODULES.length; i++) {
+      const modKey = FEISHU_PULL_MODULES[i];
+      if(!quiet) this.setStatus('syncing', `拉取中 (${i+1}/${FEISHU_PULL_MODULES.length}) ${this.getModuleName(modKey)}`);
       const result = await this.pullFromFeishu(modKey);
       if(result.ok) {
         totalPulled += result.count || 0;
@@ -1232,7 +1235,7 @@ const syncManager = {
     if(this.isSyncing) return;
     this.isSyncing = true;
     let hasError = false;
-    for(const modKey of FEISHU_ALL_MODULES) {
+    for(const modKey of FEISHU_PULL_MODULES) {
       const result = await this.pullFromFeishu(modKey);
       if(!result.ok) { hasError = true; console.warn(`[轮询] ${modKey} 拉取失败:`, result.error); }
       await new Promise(r => setTimeout(r, 120));
@@ -1299,6 +1302,8 @@ let view = "home";
 let searchQ = "";
 let todoFilter = "today";                                    // 待办筛选：today/week/all
 let clockTimer = null;                                       // 全局秒级心跳（时钟）
+/* 金额显示：统一两位小数，避免浮点长尾（如 0.30000000000000004） */
+function money2(n){ const v=+n; return (isFinite(v)?v:0).toFixed(2); }
 function persist(){ 
   store.save(); render(); scheduleSync(); 
   // 检查自动打卡（有 autoChecked 机制保护，不会覆盖用户手动操作）
@@ -1686,16 +1691,15 @@ function renderHome(){
     <div class="bento">
       ${clockCard}
       ${todoTileHTML()}
+      ${habitTileHTML()}
     </div>
 
     ${grp("本周重点","WEEKLY&nbsp;&nbsp;·&nbsp;&nbsp;FOCUS")}
     <div class="bento">
       ${goalsTileHTML()}
       ${spendTileHTML()}
-    </div>
-
-    ${grp("习惯打卡","HABIT&nbsp;&nbsp;·&nbsp;&nbsp;TRACKER")}
-    <div class="bento">${habitTileHTML()}${booksTileHTML()}</div>`;
+      ${booksTileHTML()}
+    </div>`;
   wireHome();
   startClock();
 }
@@ -2037,7 +2041,7 @@ function recHTML(m,x){
       <span class="rname">${esc(x.title)}</span>
       <span class="badge" style="background:var(--surface-nested);color:var(--text-secondary)">${esc(catLabel)}</span>
       <span class="rdate">${cnDate(x.date)||''}</span>${x.payMethod?`<span class="rdate">${esc(x.payMethod)}</span>`:''}${customBlock}</div>
-      <div class="amt ${inc?'inc':'exp'}">${inc?'+':(x.type==='transfer'?'':'-')}¥${x.amount}</div></div></div>`; }
+      <div class="amt ${inc?'inc':'exp'}">${inc?'+':(x.type==='transfer'?'':'-')}¥${money2(x.amount)}</div></div></div>`; }
   if(m.type==="quickshop"){
     const photos = Array.isArray(x.photo) ? x.photo.filter(Boolean) : [];
     return `<div class="rec">${acts}<div class="top" style="padding-right:60px"><div class="body" data-edit="${x.id}">
@@ -2048,7 +2052,7 @@ function recHTML(m,x){
       ${x.feedback?`<div class="rnote" style="font-size:12.5px;color:var(--text-secondary)">${esc(x.feedback)}</div>`:''}
       ${photos.length?`<div class="r-photos">${photos.slice(0,6).map(t=>`<img src="${mediaUrl(t)}" loading="lazy" alt="实拍"/>`).join('')}</div>`:''}
       ${customBlock}</div>
-      ${x.amount?`<div class="amt inc">¥${x.amount}</div>`:''}</div></div>`; }
+      ${x.amount?`<div class="amt inc">¥${money2(x.amount)}</div>`:''}</div></div>`; }
   if(m.type==="weekly"){
     const stageColors={"未开始":"#999","初期":"#7c6","中期":"#c94","中后期":"#e80","后期":"#c44","即将完成":"#39c","已完成":"#4c4","已放弃":"#ccc"};
     const sc=stageColors[x.stage]||"#999";
@@ -2717,6 +2721,17 @@ setTimeout(() => { initCloudSync(); }, 500);
         ];
         localStorage.setItem(key, JSON.stringify(d));
         console.log("版本升级：已重置待办和周计划（将从飞书重新同步），已初始化习惯打卡");
+      } catch(e){}
+    }
+
+    // v20261015-1: 只从飞书拉待办/周计划/打卡；清空其余模块本地数据，板块回到空白（飞书历史不受影响）
+    if(lastVer < "20261015-1"){
+      const key = CONFIG.storageKey;
+      try {
+        const d = JSON.parse(localStorage.getItem(key) || "{}");
+        d.content = []; d.quickshop = []; d.money = []; d.period = []; d.diary = [];
+        localStorage.setItem(key, JSON.stringify(d));
+        console.log("版本升级：已清空非拉取模块本地数据，板块保持干净");
       } catch(e){}
     }
     

@@ -718,7 +718,7 @@ const _cfg = window.APP_CONFIG || {};
 const SCF_API_BASE = _cfg.SCF_API_BASE || 'https://1505420925-1b0zb10qzb.ap-guangzhou.tencentscf.com';
 
 const CONFIG = {
-  version: "20261015-3",
+  version: "20261015-5",
   storageKey: "xizizi-workbench-v1",
   owner: "喜姿姿",
   slogan: "养生 · 内容 · 成长",
@@ -903,8 +903,13 @@ function icon(name, size=22, sw=1.7){
 /* ============================================================
    ENGINE — 一般无需改动
    ============================================================ */
-function isoToday(){ return new Date().toISOString().slice(0,10); }
-function today(){ return isoToday(); }
+/* 本地时区日期 YYYY-MM-DD（不用 toISOString，避免 UTC 时区偏移导致凌晨日期差一天） */
+function localDate(d){
+  d = d || new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function isoToday(){ return localDate(); }
+function today(){ return localDate(); }
 // 返回当月第一天的 ISO 日期，用于过滤当月记录
 function monthStart(){ const n=new Date(); return n.getFullYear()+'-'+pad2(n.getMonth()+1)+'-01'; }
 function isThisMonth(dateStr){ if(!dateStr) return false; return dateStr >= monthStart() && dateStr <= isoToday()+'T23:59:59'.slice(0,10); }
@@ -1459,7 +1464,7 @@ function pad2(n){ return String(n).padStart(2,"0"); }
 /* 本周（周一起）7 天的 ISO 日期 */
 function weekDates(){
   const n=new Date(); const dow=(n.getDay()+6)%7; const mon=new Date(n); mon.setDate(n.getDate()-dow);
-  const arr=[]; for(let i=0;i<7;i++){ const d=new Date(mon); d.setDate(mon.getDate()+i); arr.push(d.toISOString().slice(0,10)); }
+  const arr=[]; for(let i=0;i<7;i++){ const d=new Date(mon); d.setDate(mon.getDate()+i); arr.push(localDate(d)); }
   return arr;
 }
 function weekNum(){ const n=new Date(); const s=new Date(n.getFullYear(),0,1);
@@ -2176,7 +2181,7 @@ function recHTML(m,x){
 }
 
 function streak(log){ if(!log) return 0; let n=0; const d=new Date();
-  for(;;){ const k=d.toISOString().slice(0,10); if(log[k]){ n++; d.setDate(d.getDate()-1);} else break; } return n; }
+  for(;;){ const k=localDate(d); if(log[k]){ n++; d.setDate(d.getDate()-1);} else break; } return n; }
 
 // 逾期天数（东八区日期相减），date<今天返回正数，未来日期返回负数
 function overdueDays(dateStr){

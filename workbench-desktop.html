@@ -718,7 +718,7 @@ const _cfg = window.APP_CONFIG || {};
 const SCF_API_BASE = _cfg.SCF_API_BASE || 'https://1505420925-1b0zb10qzb.ap-guangzhou.tencentscf.com';
 
 const CONFIG = {
-  version: "20261015-5",
+  version: "20261015-6",
   storageKey: "xizizi-workbench-v1",
   owner: "喜姿姿",
   slogan: "养生 · 内容 · 成长",
@@ -912,7 +912,30 @@ function isoToday(){ return localDate(); }
 function today(){ return localDate(); }
 // 返回当月第一天的 ISO 日期，用于过滤当月记录
 function monthStart(){ const n=new Date(); return n.getFullYear()+'-'+pad2(n.getMonth()+1)+'-01'; }
-function isThisMonth(dateStr){ if(!dateStr) return false; return dateStr >= monthStart() && dateStr <= isoToday()+'T23:59:59'.slice(0,10); }
+// 判断任意日期值是否属于当月（兼容时间戳、YYYY-MM-DD、YYYY/MM/DD、无前导零等格式）
+function isCurrentMonth(dateVal){
+  if(!dateVal) return false;
+  const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth();
+  // 时间戳
+  if(typeof dateVal === 'number') {
+    const d = new Date(dateVal);
+    return d.getFullYear() === y && d.getMonth() === m;
+  }
+  // 字符串：匹配 YYYY-MM 或 YYYY/MM 开头
+  const s = String(dateVal).trim();
+  const match = s.match(/^(\d{4})[-\/](\d{1,2})/);
+  if(match) {
+    return parseInt(match[1]) === y && parseInt(match[2]) === m + 1;
+  }
+  // 其他格式：尝试 new Date
+  const d = new Date(s);
+  if(!isNaN(d.getTime())) {
+    return d.getFullYear() === y && d.getMonth() === m;
+  }
+  return false;
+}
+function isThisMonth(dateStr){ return isCurrentMonth(dateStr); }
 // 安全提取人员姓名字符串（飞书人员字段可能是对象/对象数组）
 function personName(v){
   if(!v) return '';
@@ -993,6 +1016,10 @@ const store = {
       const d = JSON.parse(raw);
       // 打卡数据清洗：清除历史重复习惯行
       if(d.checkin) d.checkin = dedupeCheckin(d.checkin);
+      // 每次加载自动清理非当月数据（生活收支、门店随手记只保留本月）
+      ['money','quickshop'].forEach(k => {
+        if(d[k]) d[k] = d[k].filter(x => isCurrentMonth(x.date));
+      });
       // 补上新增模块的种子数据（如果本地存储里没有的话）
       CONFIG.modules.forEach(m => {
         if(!d[m.key]) d[m.key] = structuredClone(m.seed || []);
@@ -1830,10 +1857,8 @@ function renderInsight(){
 /* 清空非当月记录：生活收支、门店随手记只保留本月数据（飞书原始数据不受影响） */
 function clearNonCurrentMonthData(){
   if(!confirm("确定要清空非当月的所有记录吗？\n\n生活收支、门店随手记将只保留本月数据。\n飞书原始数据不受影响，此操作不可恢复。")) return;
-  const now = new Date();
-  const ym = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   ['money','quickshop'].forEach(key => {
-    if(data[key]) data[key] = data[key].filter(x => (x.date||'').startsWith(ym));
+    if(data[key]) data[key] = data[key].filter(x => isCurrentMonth(x.date));
   });
   store.save(); render();
   alert("已清空非当月记录");
@@ -2870,7 +2895,20 @@ setTimeout(() => { initCloudSync(); }, 500);
         console.log("版本升级：记日记/当天到店客户已改手动打卡；已清空非当月记录");
       } catch(e){}
     }
-    
+
+    // v20261015-6: 修复日期UTC时区bug；用更健壮的日期判断清空非当月记录（兼容时间戳/斜杠/无前导零等格式）
+    if(lastVer < "20261015-6"){
+      const key = CONFIG.storageKey;
+      try {
+        const d = JSON.parse(localStorage.getItem(key) || "{}");
+        ['money','quickshop'].forEach(k => {
+          if(d[k]) d[k] = d[k].filter(x => isCurrentMonth(x.date));
+        });
+        localStorage.setItem(key, JSON.stringify(d));
+        console.log("版本升级：已清空非当月记录（兼容所有日期格式）");
+      } catch(e){}
+    }
+
     // 强制刷新绕过缓存
     if(performance.navigation && performance.navigation.type === 1){
       // 已经刷新过了，不重复刷

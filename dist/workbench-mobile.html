@@ -793,7 +793,7 @@ const _cfg = window.APP_CONFIG || {};
 const SCF_API_BASE = _cfg.SCF_API_BASE || 'https://1505420925-1b0zb10qzb.ap-guangzhou.tencentscf.com';
 
 const CONFIG = {
-  version: "20261015-6",
+  version: "20261015-7",
   storageKey: "xizizi-workbench-v1",
   owner: "喜姿姿",
   slogan: "养生 · 内容 · 成长",
@@ -928,8 +928,8 @@ const CONFIG = {
     { key:"checkin", name:"习惯打卡", icon:"leaf", tint:"#e8ede8", color:"var(--module-1)", type:"checkin", desc:"每天打卡，养成好习惯",
       seed:[
         {id:901,title:"记日记",log:{}},
-        {id:902,title:"门店记录",log:{},autoCheck:"quickshop"},
-        {id:903,title:"生活收支",log:{},autoCheck:"money"},
+        {id:902,title:"门店记录",log:{}},
+        {id:903,title:"生活收支",log:{}},
         {id:904,title:"练功30分钟",log:{}},
       ] },
 
@@ -3034,7 +3034,18 @@ setTimeout(() => { initCloudSync(); }, 500);
         console.log("版本升级：已清空非当月记录（兼容所有日期格式）");
       } catch(e){}
     }
-    
+
+    // v20261015-7: 全部改手动打卡，删掉所有 habit 的 autoCheck
+    if(lastVer < "20261015-7"){
+      const key = CONFIG.storageKey;
+      try {
+        const d = JSON.parse(localStorage.getItem(key) || "{}");
+        if(d.checkin) d.checkin.forEach(h => { delete h.autoCheck; });
+        localStorage.setItem(key, JSON.stringify(d));
+        console.log("版本升级：已删除所有习惯的 autoCheck，全部改手动打卡");
+      } catch(e){}
+    }
+
     // 强制刷新绕过缓存
     if(performance.navigation && performance.navigation.type === 1){
       // 已经刷新过了，不重复刷

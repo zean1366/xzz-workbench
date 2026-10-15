@@ -298,7 +298,7 @@
 
 
   /* module two-column layout: 左记录 / 右统计侧栏 */
-  .mod-layout { display:grid; grid-template-columns: 1fr 300px; gap: 16px; align-items: start; margin-top: 14px; }
+  .mod-layout { display:grid; grid-template-columns: minmax(0,1fr) 300px; gap: 16px; align-items: start; margin-top: 14px; }
   .mod-main { min-width:0; overflow:hidden; }
   .mod-side { display:flex; flex-direction:column; gap: 12px; position: sticky; top: 16px; min-width:0; }
   .side-card { background:var(--surface-card); border:1px solid var(--border); border-radius:var(--radius-tile); box-shadow:var(--shadow-card); padding:14px 15px; min-width:0; overflow:hidden; }
@@ -316,6 +316,20 @@
   .catbar .cbrow .cbt { flex:1; min-width:0; height:8px; border-radius:999px; background:var(--border); overflow:hidden; }
   .catbar .cbrow .cbt i { display:block; height:100%; border-radius:999px; }
   .catbar .cbrow .cbv { font-size:12px; color:var(--text-secondary); width:60px; text-align:right; flex:0 0 auto; }
+  /* 门店随手记 · 类型分组（文件夹样式） */
+  .qs-folder + .qs-folder { margin-top:10px; }
+  .qs-folder-h { display:flex; align-items:center; gap:9px; padding:11px 14px; cursor:pointer; font-weight:800; font-size:13.5px; letter-spacing:-.01em;
+    background:var(--surface-nested); border:1px solid var(--border); border-radius:var(--radius-tile); }
+  .qs-folder-h:hover { background:var(--surface-card); }
+  .qs-folder-h .qs-folder-ic { display:flex; color:var(--accent); flex:0 0 auto; }
+  .qs-folder-h .qs-folder-n { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .qs-folder-h .qs-folder-c { flex:0 0 auto; font-size:12px; font-weight:700; color:var(--text-secondary);
+    background:var(--surface-card); border:1px solid var(--border); border-radius:999px; padding:1px 9px; }
+  .qs-folder-h .qs-folder-ar { display:flex; color:var(--text-tertiary); }
+  .qs-folder .qs-folder-ar svg { transform:rotate(90deg); transition:transform .18s; }
+  .qs-folder.closed .qs-folder-ar svg { transform:rotate(0deg); }
+  .qs-folder-b { display:flex; flex-direction:column; gap:9px; margin-top:9px; }
+  .qs-folder.closed .qs-folder-b { display:none; }
   /* 大环形（进度/打卡侧栏） */
   .side-ring { display:flex; flex-direction:column; align-items:center; gap:8px; padding:6px 0 2px; }
   .side-ring .dial { position:relative; width:120px; height:120px; }
@@ -340,7 +354,7 @@
   .rec .chk.on { background:var(--module-1); border-color:var(--module-1); }
   .rec .chk svg { opacity:0; } .rec .chk.on svg { opacity:1; }
   .rec .body { flex:1; min-width:0; cursor:pointer; display:flex; align-items:center; gap:11px; flex-wrap:wrap; }
-  .rec .rname { font-weight:700; font-size:14.5px; letter-spacing:-.01em; flex:0 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
+  .rec .rname { font-weight:700; font-size:14.5px; letter-spacing:-.01em; flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
   .rec .rname.done { text-decoration:line-through; color:var(--text-secondary); }
   .rec .rmeta { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
   .rec .rnote { flex:1 0 100%; color:var(--text-secondary); font-size:12.5px; margin-top:5px; white-space:pre-wrap; line-height:1.5;
@@ -954,6 +968,7 @@ const ICONS = {
   moon:'<path d="M20 14.5A8 8 0 1 1 9.5 4 6.5 6.5 0 0 0 20 14.5z"/>',
   refresh:'<path d="M4 12a8 8 0 0 1 14-5.3"/><path d="M18 4v4h-4"/><path d="M20 12a8 8 0 0 1-14 5.3"/><path d="M6 20v-4h4"/>',
   mic:'<rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/>',
+  folder:'<path d="M4 7a2 2 0 0 1 2-2h3.2l1.8 2H18a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/>',
 };
 function icon(name, size=22, sw=1.7){
   const path = ICONS[name] || ICONS.grid;
@@ -975,6 +990,45 @@ function personName(v){
   if(Array.isArray(v)) return v.map(personName).filter(Boolean).join('、');
   if(typeof v === 'object') return v.name || v.text || v.en_name || '';
   return String(v);
+}
+// 门店随手记标题：飞书人员字段可能是对象，避免渲染成 [object Object]
+function qsTitle(x){
+  let t = typeof x.title === "string" ? x.title : "";
+  if(!t || t.indexOf("[object Object]") >= 0){
+    const c = personName(x.customer);
+    const one = v => Array.isArray(v) ? (v[0]||"") : (v||"");
+    const proj = one(x.project);
+    const mood = x.mood || "";
+    if(mood === "会员消费") t = `${c||"客户"} ${proj||"消费"}`;
+    else if(mood === "会员调理") t = `${c||"会员"} ${proj||"调理"}`;
+    else if(mood === "会员储值") t = `${c||"会员"} 储值${x.principal||0}元`;
+    else if(mood === "散客消费") t = `散客 ${proj||"消费"} ${x.amount||0}元`;
+    else if(mood === "门店支出") t = `${one(x.category)||"支出"}${x.detail?" - "+x.detail:""}`;
+    else if(mood === "赠送礼品") t = `${c||"赠送"} ${one(x.category)||"礼品"}`;
+    else t = t || "无标题";
+  }
+  return t;
+}
+// 门店随手记：记录按类型分组（文件夹样式），可折叠
+let qsCollapsed = {};
+function qsBody(m, it){
+  const groups = {};
+  it.forEach(x=>{ const k = x.mood || "未分类"; (groups[k] = groups[k] || []).push(x); });
+  const order = (m.moods && m.moods.length) ? m.moods : Object.keys(groups);
+  const keys = order.filter(k=>groups[k]).concat(Object.keys(groups).filter(k=>order.indexOf(k) < 0));
+  return keys.map(k=>{
+    const list = groups[k];
+    const closed = !!qsCollapsed[k];
+    return `<div class="qs-folder ${closed?"closed":""}">
+      <div class="qs-folder-h" data-qs-toggle="${attr(k)}">
+        <span class="qs-folder-ic">${icon("folder",17)}</span>
+        <span class="qs-folder-n">${esc(k)}</span>
+        <span class="qs-folder-c">${list.length} 条</span>
+        <span class="qs-folder-ar">${icon("chevron",15,2)}</span>
+      </div>
+      <div class="qs-folder-b">${closed?"":list.map(x=>recHTML(m,x)).join("")}</div>
+    </div>`;
+  }).join("");
 }
 function avgProgress(list){
   if(!list||!list.length) return { value:0, sub:"0" };
@@ -1652,7 +1706,7 @@ function habitTileHTML(){
     const rate=Math.round(cnt/7*100);
     return `<tr><td class="hn"><span class="hdot" style="background:${palette[ri%palette.length]}"></span>${esc(x.title)}</td>${cells}<td class="hrate" style="color:${palette[ri%palette.length]}">${rate}%</td></tr>`;
   }).join("") : `<tr><td colspan="9" style="text-align:center;color:var(--text-tertiary);font-size:12.5px;padding:18px 0">还没有习惯，去「习惯打卡」添加吧</td></tr>`;
-  return `<div class="tile b7"><div class="tile-h"><span class="tic">${icon("leaf",16)}</span><div class="tt"><span class="en">HABIT TRACKER</span><span class="zh">本周习惯追踪表</span></div><span class="r js-open" data-open="checkin">本周 · 周${dnames[((new Date().getDay())+6)%7]}</span></div>
+  return `<div class="tile b12"><div class="tile-h"><span class="tic">${icon("leaf",16)}</span><div class="tt"><span class="en">HABIT TRACKER</span><span class="zh">本周习惯追踪表</span></div><span class="r js-open" data-open="checkin">本周 · 周${dnames[((new Date().getDay())+6)%7]}</span></div>
     <table class="habit-tb"><thead><tr><th class="hh">习惯</th>${ths}<th class="hr">完成率</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
@@ -1689,7 +1743,7 @@ function todoTileHTML(){
 
   const moreLine = moreCount > 0 ? `<div class="tk-more js-open" data-open="todo">还有 ${moreCount} 条待办 →</div>` : '';
 
-  return `<div class="tile b4"><div class="tile-h"><span class="tic">${icon("list",16)}</span><div class="tt"><span class="en">TODAY'S TODO</span><span class="zh">今日待办</span></div><span class="r js-open" data-open="todo">全部</span></div>
+  return `<div class="tile b7"><div class="tile-h"><span class="tic">${icon("list",16)}</span><div class="tt"><span class="en">TODAY'S TODO</span><span class="zh">今日待办</span></div><span class="r js-open" data-open="todo">全部</span></div>
     <div class="tk-head"><span class="pct">${done}<span style="color:var(--text-secondary)">/${todayTotal}</span></span><span class="cnt">完成 ${pct}%</span><span class="bar"><i style="width:${pct}%"></i></span></div>
     <div class="tk-list">${list}${moreLine}</div></div>`;
 }
@@ -1725,7 +1779,7 @@ function booksTileHTML(){
       <div class="bmid"><div class="btt">${esc(x.title)}</div><div class="bsub">${x.note?esc(x.note):`${x.current}/${x.target} ${x.unit||'页'}`}</div>
         <div class="bbar"><i style="width:${pct}%;background:${col}"></i></div></div><span class="bpct" style="color:${col}">${pct}%</span></div>`; }).join("")
     : `<div class="focus-empty">还没有在读书籍，去「阅读打卡」添加吧</div>`;
-  return `<div class="tile b5"><div class="tile-h"><span class="tic">${icon("book",16)}</span><div class="tt"><span class="en">CURRENTLY READING</span><span class="zh">在读好书</span></div><span class="r">${all.length} 本</span></div>
+  return `<div class="tile b4"><div class="tile-h"><span class="tic">${icon("book",16)}</span><div class="tt"><span class="en">CURRENTLY READING</span><span class="zh">在读好书</span></div><span class="r">${all.length} 本</span></div>
     <div class="book-list">${rows}</div></div>`;
 }
 
@@ -1750,7 +1804,7 @@ function renderHome(){
   const hi = hour<5?"夜深了":hour<11?"早上好":hour<13?"中午好":hour<18?"下午好":"晚上好";
 
   // 时钟卡
-  const clockCard=`<div class="clock-card b4">
+  const clockCard=`<div class="clock-card b5">
     <div><div class="hi">${hi}，${esc(CONFIG.owner)}！ ☺️</div><div class="sub">${esc(q)}</div></div>
     <div><div class="clk" id="clk">${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}</div>
       <div class="cmeta"><span>${dateStr()}</span><span class="dot"></span><span>第 ${weekNum()} 周</span></div></div></div>`;
@@ -1911,7 +1965,7 @@ function renderModule(key){
   // 生活收支板块主打记录：只汇总+录入，不回显飞书历史明细
   const body = (m.type==="finance")
     ? `<div class="empty"><span class="e">${icon(m.icon,28)}</span><div>收支记录自动回填飞书账本<br>本板块专注记录，明细到飞书「个人家庭收支记录」查看</div></div>`
-    : (it.length ? it.map(x=>recHTML(m,x)).join("")
+    : (it.length ? (m.type==="quickshop" ? qsBody(m,it) : it.map(x=>recHTML(m,x)).join(""))
     : `<div class="empty"><span class="e">${icon(m.icon,28)}</span><div>${q?'没有匹配的记录':'还没有记录，点右上角「新建」添加第一条吧'}</div></div>`);
 
   // 内容生产：4阶段看板布局
@@ -1970,7 +2024,9 @@ function renderModule(key){
 
 /* 仅刷新受搜索影响的记录列表与计数，不重建搜索框（避免打断中文输入法） */
 function renderModuleResults(key){
-  const m=modOf(key); const all=data[key]||[];
+  const m=modOf(key); let all=data[key]||[];
+  // 与列表保持一致：生活收支、门店随手记只显示当月记录
+  if(m.type==="finance" || m.type==="quickshop"){ all = all.filter(x=>isThisMonth(x.date)); }
   const q=searchQ.trim().toLowerCase();
   let it=q?all.filter(x=>(x.title||"").toLowerCase().includes(q)||(x.note||x.content||"").toLowerCase().includes(q)):all;
   
@@ -1996,7 +2052,7 @@ function renderModuleResults(key){
     });
   }
   
-  const body = it.length ? it.map(x=>recHTML(m,x)).join("")
+  const body = it.length ? (m.type==="quickshop" ? qsBody(m,it) : it.map(x=>recHTML(m,x)).join(""))
     : `<div class="empty"><span class="e">${icon(m.icon,28)}</span><div>${q?'没有匹配的记录':'还没有记录，点右上角「新建」添加第一条吧'}</div></div>`;
   const grid=$(".rec-grid"); if(grid) grid.innerHTML=body;
   const cnt=$("#rec-count"); if(cnt) cnt.textContent=`${it.length} 条`;
@@ -2128,7 +2184,7 @@ function recHTML(m,x){
     const custStr = personName(x.customer);
     const projStr = Array.isArray(x.project) ? x.project.join('、') : (x.project||'');
     return `<div class="rec">${acts}<div class="top" style="padding-right:60px"><div class="body" data-edit="${x.id}">
-      <span class="rname">${esc(x.title||'无标题')}</span>
+      <span class="rname">${esc(qsTitle(x))}</span>
       ${x.mood?`<span class="badge" style="background:var(--accent-muted);color:var(--accent)">${esc(x.mood)}</span>`:''}
       <span class="rdate">${cnDate(x.date)||''}</span>
       ${custStr?`<div class="rnote" style="font-size:13px">客户：${esc(custStr)}${projStr?' · '+esc(projStr):''}</div>`:''}
@@ -2196,6 +2252,12 @@ function wireModule(key){ const m=modOf(key);
     todoFilter = el.dataset.filter;
     searchQ = ""; // 切换筛选时清空搜索
     renderModule(key);
+  });
+  // 门店随手记：点分组标题折叠/展开
+  $("#screen").querySelectorAll("[data-qs-toggle]").forEach(el=>el.onclick=()=>{
+    const k = el.dataset.qsToggle;
+    qsCollapsed[k] = !qsCollapsed[k];
+    renderModuleResults(key);
   });
 }
 

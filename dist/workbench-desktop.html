@@ -314,11 +314,11 @@
   .stat-row .val { font-size:14px; font-weight:800; letter-spacing:-.01em; }
   /* 分类占比条 */
   .catbar { margin-top:4px; }
-  .catbar .cbrow { display:flex; align-items:center; gap:9px; padding:7px 0; }
-  .catbar .cbrow .cbn { font-size:12.5px; color:var(--text); width:52px; flex:0 0 auto; }
-  .catbar .cbrow .cbt { flex:1; height:8px; border-radius:999px; background:var(--border); overflow:hidden; }
+  .catbar .cbrow { display:flex; align-items:center; gap:9px; padding:7px 0; min-width:0; }
+  .catbar .cbrow .cbn { font-size:12.5px; color:var(--text); width:64px; flex:0 0 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .catbar .cbrow .cbt { flex:1; min-width:0; height:8px; border-radius:999px; background:var(--border); overflow:hidden; }
   .catbar .cbrow .cbt i { display:block; height:100%; border-radius:999px; }
-  .catbar .cbrow .cbv { font-size:12px; color:var(--text-secondary); width:56px; text-align:right; flex:0 0 auto; }
+  .catbar .cbrow .cbv { font-size:12px; color:var(--text-secondary); width:60px; text-align:right; flex:0 0 auto; }
   /* 大环形（进度/打卡侧栏） */
   .side-ring { display:flex; flex-direction:column; align-items:center; gap:8px; padding:6px 0 2px; }
   .side-ring .dial { position:relative; width:120px; height:120px; }
@@ -700,7 +700,7 @@ const _cfg = window.APP_CONFIG || {};
 const SCF_API_BASE = _cfg.SCF_API_BASE || 'https://1505420925-1b0zb10qzb.ap-guangzhou.tencentscf.com';
 
 const CONFIG = {
-  version: "20261010-1",
+  version: "20261015-2",
   storageKey: "xizizi-workbench-v1",
   owner: "喜姿姿",
   slogan: "养生 · 内容 · 成长",
@@ -725,8 +725,6 @@ const CONFIG = {
       calc: d => { const it=d.weeklylearn||[]; const done=it.filter(x=>x.stage==="已完成").length; return { value: it.length?Math.round(done/it.length*100):0, sub:`${done}/${it.length} 项` }; } },
     { key:"quickshop", label:"待整理", icon:"star", color:"var(--module-3)",
       calc: d => { const it=d.quickshop||[]; return { value: Math.min(100, it.length*5), sub:`${it.length} 条待整理` }; } },
-    { key:"diary", label:"碎片灵感杂事", icon:"quote", color:"var(--module-5)",
-      calc: d => { const it=d.diary||[]; return { value: Math.min(100, it.length*10), sub:`${it.length} 条` }; } },
     { key:"money", label:"本月收支", icon:"wallet", color:"var(--module-4)",
       calc: d => { const it=d.money||[]; const inc=it.filter(x=>x.type==='income').reduce((s,x)=>s+x.amount,0); const exp=it.filter(x=>x.type==='expense').reduce((s,x)=>s+x.amount,0); return { value: exp&&inc?Math.min(100,Math.round(exp/inc*100)):0, sub:`支${exp}/收${inc}` }; } },
   ],
@@ -815,10 +813,6 @@ const CONFIG = {
       seed:[ {id:601,title:"张姐 肩颈调理",mood:"会员消费",amount:128,customer:"张姐",project:"肩颈调理",feedback:"用卡余额",date:isoToday()},
              {id:602,title:"进货 - 艾条一盒",mood:"门店支出",amount:85,customer:"",project:"耗材采购",feedback:"20根装",date:isoToday()} ] },
 
-    { key:"diary", name:"碎片灵感杂事", icon:"quote", tint:"#eeeaf0", color:"var(--module-5)", type:"diary", desc:"记录突发灵感、待办小事、怕忘的问题",
-      moods:["灵感","待办","问题","想法"],
-      seed:[ {id:301,title:"会员说敷完药后睡眠变好了",content:"张姐说连续敷了5天，最近躺下就能睡着。这个反馈可以做成案例分享。",mood:"灵感",date:isoToday()} ] },
-
     { key:"money", name:"生活收支", icon:"wallet", tint:"#f6efe8", color:"var(--module-4)", type:"finance", desc:"每一笔收支都有去处，自动回填飞书账本",
       payMethods:["支付宝","微信","平安银行","现金"],
       bigCategories:["个人衣食行开支","家庭开支","育儿开支"],
@@ -892,6 +886,17 @@ function icon(name, size=22, sw=1.7){
    ============================================================ */
 function isoToday(){ return new Date().toISOString().slice(0,10); }
 function today(){ return isoToday(); }
+// 返回当月第一天的 ISO 日期，用于过滤当月记录
+function monthStart(){ const n=new Date(); return n.getFullYear()+'-'+pad2(n.getMonth()+1)+'-01'; }
+function isThisMonth(dateStr){ if(!dateStr) return false; return dateStr >= monthStart() && dateStr <= isoToday()+'T23:59:59'.slice(0,10); }
+// 安全提取人员姓名字符串（飞书人员字段可能是对象/对象数组）
+function personName(v){
+  if(!v) return '';
+  if(typeof v === 'string') return v;
+  if(Array.isArray(v)) return v.map(personName).filter(Boolean).join('、');
+  if(typeof v === 'object') return v.name || v.text || v.en_name || '';
+  return String(v);
+}
 function avgProgress(list){
   if(!list||!list.length) return { value:0, sub:"0" };
   const v = Math.round(list.reduce((s,x)=>s+Math.min(100,(x.current/x.target)*100||0),0)/list.length);
@@ -979,7 +984,10 @@ const store = {
 
 // 同步方向配置：飞书多维表格为唯一数据源
 // 所有模块都支持双向读写：先 pull 再 push，飞书 ↔ 工作台
-const FEISHU_ALL_MODULES = ['todo', 'weeklylearn', 'content', 'quickshop', 'money', 'period', 'diary', 'checkin'];
+const FEISHU_ALL_MODULES = ['todo', 'weeklylearn', 'content', 'quickshop', 'money', 'period', 'checkin'];
+// 只从飞书拉取的模块：每日待办、一周主题（这两个需要每日从飞书获取最新信息）。
+// 其余模块（门店随手记/生活收支/内容/经期/打卡）只在工作台记录、往飞书推送，不导入飞书历史，板块保持干净，最多只显示当月记录
+const FEISHU_PULL_MODULES = ['todo', 'weeklylearn'];
 
 // 同步 API 地址（默认全部走腾讯云 SCF，手机/电脑统一云端链路，电脑无需开机）
 // 本地兜底：在 app-config.js 把 USE_LOCAL_FALLBACK 设为 true，且访问 localhost 时走本地 server.js
@@ -1179,10 +1187,10 @@ const syncManager = {
       await new Promise(r => setTimeout(r, 150));
     }
 
-    // 2. 拉取：飞书最新数据 → 工作台
-    for(let i = 0; i < mods.length; i++) {
-      const modKey = mods[i];
-      if(!quiet) this.setStatus('syncing', `拉取中 (${i+1}/${mods.length}) ${this.getModuleName(modKey)}`);
+    // 2. 拉取：飞书最新数据 → 工作台（只拉白名单模块）
+    for(let i = 0; i < FEISHU_PULL_MODULES.length; i++) {
+      const modKey = FEISHU_PULL_MODULES[i];
+      if(!quiet) this.setStatus('syncing', `拉取中 (${i+1}/${FEISHU_PULL_MODULES.length}) ${this.getModuleName(modKey)}`);
       const result = await this.pullFromFeishu(modKey);
       if(result.ok) {
         totalPulled += result.count || 0;
@@ -1232,7 +1240,7 @@ const syncManager = {
     if(this.isSyncing) return;
     this.isSyncing = true;
     let hasError = false;
-    for(const modKey of FEISHU_ALL_MODULES) {
+    for(const modKey of FEISHU_PULL_MODULES) {
       const result = await this.pullFromFeishu(modKey);
       if(!result.ok) { hasError = true; console.warn(`[轮询] ${modKey} 拉取失败:`, result.error); }
       await new Promise(r => setTimeout(r, 120));
@@ -1299,6 +1307,8 @@ let view = "home";
 let searchQ = "";
 let todoFilter = "today";                                    // 待办筛选：today/week/all
 let clockTimer = null;                                       // 全局秒级心跳（时钟）
+/* 金额显示：统一两位小数，避免浮点长尾（如 0.30000000000000004） */
+function money2(n){ const v=+n; return (isFinite(v)?v:0).toFixed(2); }
 function persist(){ 
   store.save(); render(); scheduleSync(); 
   // 检查自动打卡（有 autoChecked 机制保护，不会覆盖用户手动操作）
@@ -1686,16 +1696,15 @@ function renderHome(){
     <div class="bento">
       ${clockCard}
       ${todoTileHTML()}
+      ${habitTileHTML()}
     </div>
 
     ${grp("本周重点","WEEKLY&nbsp;&nbsp;·&nbsp;&nbsp;FOCUS")}
     <div class="bento">
       ${goalsTileHTML()}
       ${spendTileHTML()}
-    </div>
-
-    ${grp("习惯打卡","HABIT&nbsp;&nbsp;·&nbsp;&nbsp;TRACKER")}
-    <div class="bento">${habitTileHTML()}${booksTileHTML()}</div>`;
+      ${booksTileHTML()}
+    </div>`;
   wireHome();
   startClock();
 }
@@ -1747,7 +1756,12 @@ function renderInsight(){
 
 /* ---------- MODULE VIEW ---------- */
 function renderModule(key){
-  const m=modOf(key); const all=data[key]||[]; let it=all;
+  const m=modOf(key); let all=data[key]||[];
+  // 生活收支、门店随手记只显示当月记录（其余模块显示全部）
+  if(m.type==="finance" || m.type==="quickshop"){
+    all = all.filter(x=>isThisMonth(x.date));
+  }
+  let it=all;
   const t=today();
   const q=searchQ.trim().toLowerCase();
   if(q) it=all.filter(x=>(x.title||"").toLowerCase().includes(q)||(x.note||x.content||"").toLowerCase().includes(q));
@@ -2037,18 +2051,20 @@ function recHTML(m,x){
       <span class="rname">${esc(x.title)}</span>
       <span class="badge" style="background:var(--surface-nested);color:var(--text-secondary)">${esc(catLabel)}</span>
       <span class="rdate">${cnDate(x.date)||''}</span>${x.payMethod?`<span class="rdate">${esc(x.payMethod)}</span>`:''}${customBlock}</div>
-      <div class="amt ${inc?'inc':'exp'}">${inc?'+':(x.type==='transfer'?'':'-')}¥${x.amount}</div></div></div>`; }
+      <div class="amt ${inc?'inc':'exp'}">${inc?'+':(x.type==='transfer'?'':'-')}¥${money2(x.amount)}</div></div></div>`; }
   if(m.type==="quickshop"){
     const photos = Array.isArray(x.photo) ? x.photo.filter(Boolean) : [];
+    const custStr = personName(x.customer);
+    const projStr = Array.isArray(x.project) ? x.project.join('、') : (x.project||'');
     return `<div class="rec">${acts}<div class="top" style="padding-right:60px"><div class="body" data-edit="${x.id}">
       <span class="rname">${esc(x.title||'无标题')}</span>
       ${x.mood?`<span class="badge" style="background:var(--accent-muted);color:var(--accent)">${esc(x.mood)}</span>`:''}
       <span class="rdate">${cnDate(x.date)||''}</span>
-      ${x.customer?`<div class="rnote" style="font-size:13px">客户：${esc(x.customer)}${x.project?' · '+esc(Array.isArray(x.project)?x.project.join('、'):x.project):''}</div>`:''}
+      ${custStr?`<div class="rnote" style="font-size:13px">客户：${esc(custStr)}${projStr?' · '+esc(projStr):''}</div>`:''}
       ${x.feedback?`<div class="rnote" style="font-size:12.5px;color:var(--text-secondary)">${esc(x.feedback)}</div>`:''}
       ${photos.length?`<div class="r-photos">${photos.slice(0,6).map(t=>`<img src="${mediaUrl(t)}" loading="lazy" alt="实拍"/>`).join('')}</div>`:''}
       ${customBlock}</div>
-      ${x.amount?`<div class="amt inc">¥${x.amount}</div>`:''}</div></div>`; }
+      ${x.amount?`<div class="amt inc">¥${money2(x.amount)}</div>`:''}</div></div>`; }
   if(m.type==="weekly"){
     const stageColors={"未开始":"#999","初期":"#7c6","中期":"#c94","中后期":"#e80","后期":"#c44","即将完成":"#39c","已完成":"#4c4","已放弃":"#ccc"};
     const sc=stageColors[x.stage]||"#999";
@@ -2717,6 +2733,28 @@ setTimeout(() => { initCloudSync(); }, 500);
         ];
         localStorage.setItem(key, JSON.stringify(d));
         console.log("版本升级：已重置待办和周计划（将从飞书重新同步），已初始化习惯打卡");
+      } catch(e){}
+    }
+
+    // v20261015-1: 只从飞书拉待办/周计划/打卡；清空其余模块本地数据，板块回到空白（飞书历史不受影响）
+    if(lastVer < "20261015-1"){
+      const key = CONFIG.storageKey;
+      try {
+        const d = JSON.parse(localStorage.getItem(key) || "{}");
+        d.content = []; d.quickshop = []; d.money = []; d.period = []; d.diary = [];
+        localStorage.setItem(key, JSON.stringify(d));
+        console.log("版本升级：已清空非拉取模块本地数据，板块保持干净");
+      } catch(e){}
+    }
+
+    // v20261015-2: 删除「碎片灵感杂事」模块；生活收支/门店随手记只显示当月；清空历史数据重新开始
+    if(lastVer < "20261015-2"){
+      const key = CONFIG.storageKey;
+      try {
+        const d = JSON.parse(localStorage.getItem(key) || "{}");
+        d.quickshop = []; d.money = []; d.period = []; d.content = []; d.diary = [];
+        localStorage.setItem(key, JSON.stringify(d));
+        console.log("版本升级：已清空门店随手记、生活收支等历史数据，仅保留当月起的新记录");
       } catch(e){}
     }
     

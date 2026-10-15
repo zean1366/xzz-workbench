@@ -718,7 +718,7 @@ const _cfg = window.APP_CONFIG || {};
 const SCF_API_BASE = _cfg.SCF_API_BASE || 'https://1505420925-1b0zb10qzb.ap-guangzhou.tencentscf.com';
 
 const CONFIG = {
-  version: "20261015-7",
+  version: "20261015-8",
   storageKey: "xizizi-workbench-v1",
   owner: "喜姿姿",
   slogan: "养生 · 内容 · 成长",
@@ -1848,10 +1848,28 @@ function renderInsight(){
     <div class="pin-list" style="grid-template-columns:repeat(3,1fr)"><div class="pin" id="clearOldDataBtn" style="cursor:pointer">
       <span class="pin-ic" style="color:var(--danger);background:#fde8e8;border-color:transparent">${icon("trash",19)}</span>
       <div class="pin-b"><div class="pin-t">清空非当月记录</div><div class="pin-m">生活收支、门店随手记只保留本月数据，飞书原始数据不受影响</div></div>
+      <span class="arw" style="color:var(--text-tertiary)">${icon("chevron",16,2)}</span></div>
+    <div class="pin" id="clearMoneyBtn" style="cursor:pointer">
+      <span class="pin-ic" style="color:var(--danger);background:#fde8e8;border-color:transparent">${icon("trash",19)}</span>
+      <div class="pin-b"><div class="pin-t">清空生活收支所有记录</div><div class="pin-m">删除本地所有收支数据（包括当月），飞书原始数据不受影响</div></div>
+      <span class="arw" style="color:var(--text-tertiary)">${icon("chevron",16,2)}</span></div>
+    <div class="pin" id="clearQuickshopBtn" style="cursor:pointer">
+      <span class="pin-ic" style="color:var(--danger);background:#fde8e8;border-color:transparent">${icon("trash",19)}</span>
+      <div class="pin-b"><div class="pin-t">清空门店随手记所有记录</div><div class="pin-m">删除本地所有门店记录（包括当月），飞书原始数据不受影响</div></div>
       <span class="arw" style="color:var(--text-tertiary)">${icon("chevron",16,2)}</span></div></div>
     <div class="sec-title">模块概况</div><div class="pin-list" style="grid-template-columns:repeat(3,1fr)">${cards}</div>`;
   $("#screen").querySelectorAll("[data-open]").forEach(el=>el.onclick=()=>go(el.dataset.open));
   $("#clearOldDataBtn").onclick=()=>clearNonCurrentMonthData();
+  $("#clearMoneyBtn").onclick=()=>clearModuleData('money','生活收支');
+  $("#clearQuickshopBtn").onclick=()=>clearModuleData('quickshop','门店随手记');
+}
+
+/* 清空指定模块的所有本地记录（飞书原始数据不受影响） */
+function clearModuleData(key, name){
+  if(!confirm(`确定要清空「${name}」的所有本地记录吗？\n\n将删除所有数据（包括当月），飞书原始数据不受影响，此操作不可恢复。`)) return;
+  data[key] = [];
+  store.save(); render();
+  alert(`「${name}」已清空`);
 }
 
 /* 清空非当月记录：生活收支、门店随手记只保留本月数据（飞书原始数据不受影响） */
@@ -2917,6 +2935,17 @@ setTimeout(() => { initCloudSync(); }, 500);
         if(d.checkin) d.checkin.forEach(h => { delete h.autoCheck; });
         localStorage.setItem(key, JSON.stringify(d));
         console.log("版本升级：已删除所有习惯的 autoCheck，全部改手动打卡");
+      } catch(e){}
+    }
+
+    // v20261015-8: 清空推送型模块所有本地记录（含当月格式的历史残留），生活收支/门店随手记/内容生产/例假/日记从零开始；飞书原始数据不受影响
+    if(lastVer < "20261015-8"){
+      const key = CONFIG.storageKey;
+      try {
+        const d = JSON.parse(localStorage.getItem(key) || "{}");
+        d.money = []; d.quickshop = []; d.content = []; d.period = []; d.diary = [];
+        localStorage.setItem(key, JSON.stringify(d));
+        console.log("版本升级：已清空生活收支/门店随手记等所有本地记录，从零开始");
       } catch(e){}
     }
 

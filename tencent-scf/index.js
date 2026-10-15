@@ -199,6 +199,14 @@ function fromAttachment(val) {
   if (Array.isArray(val)) return val.map(v => v.file_token || v).filter(Boolean);
   return [];
 }
+// 飞书人员字段（[{id, name, ...}] 或单个对象）→ 姓名字符串，避免拼成 [object Object]
+function fromPerson(val) {
+  if (!val) return '';
+  if (typeof val === 'string') return val;
+  if (Array.isArray(val)) return val.map(v => (v && v.name) || '').filter(Boolean).join('、');
+  if (typeof val === 'object') return val.name || '';
+  return '';
+}
 function fromCheckinLog(val) {
   if (!val) return {};
   if (typeof val === 'object') return val;
@@ -363,6 +371,8 @@ async function pullQuickshop() {
             rec[localField] = fromDate(val);
           } else if (localField === 'photo') {
             rec[localField] = fromAttachment(val);
+          } else if (localField === 'customer' || localField === 'therapist') {
+            rec[localField] = fromPerson(val);
           } else {
             rec[localField] = val || '';
           }
@@ -370,7 +380,7 @@ async function pullQuickshop() {
         if (mood === '会员消费') rec.title = `${rec.customer || '客户'} ${(rec.project && rec.project[0]) || '消费'}`;
         else if (mood === '会员储值') rec.title = `${rec.customer || '会员'} 储值${rec.principal || 0}元`;
         else if (mood === '散客消费') rec.title = `散客 ${(rec.project && rec.project[0]) || '消费'} ${rec.amount || 0}元`;
-        else if (mood === '门店支出') rec.title = `${rec.category || '支出'} - ${rec.detail || ''}`;
+        else if (mood === '门店支出') rec.title = `${(rec.category && rec.category[0]) || '支出'} - ${rec.detail || ''}`;
         else if (mood === '赠送礼品') rec.title = `${rec.customer || '赠送'} ${(rec.category && rec.category[0]) || '礼品'}`;
         else if (mood === '会员调理') rec.title = `${rec.customer || '会员'} ${(rec.project && rec.project[0]) || '调理'}`;
         allRecords.push(rec);

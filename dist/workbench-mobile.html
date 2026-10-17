@@ -793,7 +793,7 @@ const _cfg = window.APP_CONFIG || {};
 const SCF_API_BASE = _cfg.SCF_API_BASE || 'https://1505420925-1b0zb10qzb.ap-guangzhou.tencentscf.com';
 
 const CONFIG = {
-  version: "20261015-9",
+  version: "20261016-1",
   storageKey: "xizizi-workbench-v1",
   owner: "喜姿姿",
   slogan: "养生 · 内容 · 成长",
@@ -1402,6 +1402,11 @@ const syncManager = {
   async pullAllQuiet() {
     if(this.isSyncing) return;
     this.isSyncing = true;
+    // 重试之前推送失败的记录（网络恢复后自动补传，不影响已成功的记录）
+    if(loadPendingSync().length > 0){
+      const remain = await flushPendingSync();
+      if(remain) console.warn(`[轮询] 仍有 ${remain} 条记录未同步`);
+    }
     for(const modKey of FEISHU_PULL_MODULES) {
       const result = await this.pullFromFeishu(modKey);
       if(!result.ok) console.warn(`[轮询] ${modKey} 拉取失败:`, result.error);
@@ -1430,14 +1435,20 @@ const syncManager = {
   async pushAllQuiet() {
     if(this.isSyncing) return;
     this.isSyncing = true;
+    let failed = 0;
     for(const modKey of FEISHU_ALL_MODULES) {
       const result = await this.pushToFeishu(modKey);
-      if(!result.ok && result.error) console.warn(`[推送] ${modKey} 失败:`, result.error);
+      if(!result.ok){ failed++; if(result.error) console.warn(`[推送] ${modKey} 失败:`, result.error); }
       await new Promise(r => setTimeout(r, 120));
     }
     localStorage.setItem(CONFIG.storageKey, JSON.stringify(data));
     this.lastSyncTime = new Date();
     this.isSyncing = false;
+    // 推送失败不能静默吞掉，要让用户看得见
+    if(failed){
+      this.setStatus('error', `${failed} 个模块未能同步，稍后自动重试`);
+      setTimeout(() => this.setStatus('', '准备就绪'), 6000);
+    }
   },
 
   // 保存后推送单个模块（表单提交后立即写入飞书）
@@ -1509,14 +1520,15 @@ function autoCheckHabits() {
 }
 
 // 防抖同步：保存后延迟同步，避免频繁操作时重复请求
-let _syncTimer = null;
+let _syncTimer = null, _syncRetry = 0;
 function scheduleSync() {
   if(!CONFIG.cloudSync) return;
   if(_syncTimer) clearTimeout(_syncTimer);
   _syncTimer = setTimeout(() => {
-    if(!syncManager.isSyncing) {
-      syncManager.pushAllQuiet();
-    }
+    // 若正好在一次同步过程中（比如刚打开页面的全量同步），稍后重试，避免本地改动漏推
+    if(syncManager.isSyncing && _syncRetry < 8) { _syncRetry++; scheduleSync(); return; }
+    _syncRetry = 0;
+    syncManager.pushAllQuiet();
   }, 3000); // 3秒防抖后静默推送本地改动
 }
 
@@ -1538,6 +1550,11 @@ function startSyncPolling() {
     window._visSyncBound = true;
     let _lastVisPull = Date.now(); // 打开页面时已经同步过一次
     document.addEventListener("visibilitychange", () => {
+      // 切走页面时，把还没推送到飞书的本地改动立刻推一次，避免关掉页面后这次记录丢失
+      if(document.hidden){
+        if(CONFIG.cloudSync && !syncManager.isSyncing) syncManager.pushAllQuiet();
+        return;
+      }
       if(!document.hidden && CONFIG.cloudSync && !syncManager.isSyncing
          && Date.now() - _lastVisPull > VIS_PULL_GAP){
         _lastVisPull = Date.now();
@@ -2024,9 +2041,7 @@ function renderModule(key){
   }
 
   // 生活收支板块主打记录：只汇总+录入，不回显飞书历史明细
-  const body = (m.type==="finance")
-    ? `<div class="empty"><span class="e">${icon(m.icon,28)}</span><div>收支记录自动回填飞书账本<br>本板块专注记录，明细到飞书「个人家庭收支记录」查看</div></div>`
-    : (it.length ? (m.type==="quickshop" ? qsBody(m,it) : it.map(x=>recHTML(m,x)).join(""))
+  const body = (it.length ? (m.type==="quickshop" ? qsBody(m,it) : it.map(x=>recHTML(m,x)).join(""))
     : `<div class="empty"><span class="e">${icon(m.icon,28)}</span><div>${q?'没有匹配的记录':'还没有记录，点右上角「新建」添加第一条吧'}</div></div>`);
 
   // 内容生产：4阶段看板布局

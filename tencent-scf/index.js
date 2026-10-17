@@ -263,8 +263,8 @@ function assignRecordIds(localRecords, ids) {
   let idx = 0;
   for (const rec of localRecords) {
     if (!rec.record_id && idx < ids.length) {
+      // 只补写 record_id，保留本地 id，前端才能按 id 建立 本地记录 ↔ 飞书记录 的映射
       rec.record_id = ids[idx];
-      rec.id = ids[idx];
       idx++;
     }
   }
@@ -916,6 +916,34 @@ const server = http.createServer(async (req, res) => {
       tableConfigModules: config ? Object.keys(config).join(', ') : null,
       tableConfigRawLength: process.env.FEISHU_TABLE_CONFIG ? process.env.FEISHU_TABLE_CONFIG.length : 0,
     });
+  }
+
+  // 清理指定月份的记录（用于清除重复推送产生的垃圾数据；&dry=1 只预览不删除）
+  if (action === 'clearMonth' && module) {
+    const month = query.month || '';
+    if (!/^\d{4}-\d{2}$/.test(month)) return sendJSON(res, 400, { ok: false, error: 'month 参数格式应为 YYYY-MM' });
+    const TABLE_CONFIG = requireTableConfig();
+    const cfg = TABLE_CONFIG[module];
+    if (!cfg || !cfg.baseToken) return sendJSON(res, 400, { ok: false, error: `未配置的模块: ${module}` });
+    try {
+      const all = await fetchAllRecords(cfg.baseToken, cfg.tableId);
+      const target = all.filter(r => {
+        const f = r.fields || {};
+        const d = fromDate(f['日期'] || f['打卡日期'] || f['开始日期']);
+        return d.startsWith(month);
+      });
+      const ids = target.map(r => r.record_id);
+      if (query.dry === '1') {
+        return sendJSON(res, 200, { ok: true, dry: true, month, wouldDelete: ids.length,
+          preview: target.slice(0, 8).map(r => ({ id: r.record_id, date: fromDate((r.fields || {})['日期']) })) });
+      }
+      const { count } = await batchDelete(cfg.baseToken, cfg.tableId, ids);
+      console.log(`[CLEAR] ${module} ${month}: 删除 ${count} 条`);
+      return sendJSON(res, 200, { ok: true, month, deleted: count });
+    } catch (e) {
+      console.error('[CLEAR] error:', e.message);
+      return sendJSON(res, 500, { ok: false, error: e.message });
+    }
   }
 
   // 拉取

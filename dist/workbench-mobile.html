@@ -2142,6 +2142,11 @@ function renderModuleResults(key){
     });
   }
   
+  // 门店随手记、生活收支：按日期倒序排列（最新在前）
+  if(m.type==="quickshop" || m.type==="finance"){
+    it = [...it].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  }
+  
   const body = it.length ? (m.type==="quickshop" ? qsBody(m,it) : it.map(x=>recHTML(m,x)).join(""))
     : `<div class="empty"><span class="e">${icon(m.icon,28)}</span><div>${q?'没有匹配的记录':'还没有记录，点右上角「新建」添加第一条吧'}</div></div>`;
   const grid=$(".rec-grid"); if(grid) grid.innerHTML=body;

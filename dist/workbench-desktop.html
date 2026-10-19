@@ -718,7 +718,7 @@ const _cfg = window.APP_CONFIG || {};
 const SCF_API_BASE = _cfg.SCF_API_BASE || 'https://1505420925-1b0zb10qzb.ap-guangzhou.tencentscf.com';
 
 const CONFIG = {
-  version: "20261016-1",
+  version: "20261019-1",
   storageKey: "xizizi-workbench-v1",
   owner: "喜姿姿",
   slogan: "养生 · 内容 · 成长",
@@ -1075,9 +1075,13 @@ const store = {
 // 同步方向配置：飞书多维表格为唯一数据源
 // 所有模块都支持双向读写：先 pull 再 push，飞书 ↔ 工作台
 const FEISHU_ALL_MODULES = ['todo', 'weeklylearn', 'content', 'quickshop', 'money', 'period', 'checkin'];
-// 只从飞书拉取的模块：每日待办、一周主题（这两个需要每日从飞书获取最新信息）。
-// 其余模块（门店随手记/生活收支/内容/经期/打卡）只在工作台记录、往飞书推送，不导入飞书历史，板块保持干净，最多只显示当月记录
-const FEISHU_PULL_MODULES = ['todo', 'weeklylearn'];
+// 从飞书拉取的模块：每日待办、一周主题每日获取最新；
+// 生活收支/门店随手记/例假记录/习惯打卡也双向互通——手机记的电脑能看到，电脑记的手机能看到（飞书是中间仓库）
+// 内容板块保持只推不拉
+const FEISHU_PULL_MODULES = ['todo', 'weeklylearn', 'money', 'quickshop', 'period', 'checkin'];
+// 拉取时只保留当月记录的模块（防止把整年陈年旧账拉进工作台，历史旧账永远留在飞书仓库）
+// 例假/打卡需要看历史周期与连续打卡天数，拉全量
+const PULL_CURRENT_MONTH_ONLY = ['money', 'quickshop'];
 
 // 同步 API 地址（默认全部走腾讯云 SCF，手机/电脑统一云端链路，电脑无需开机）
 // 本地兜底：在 app-config.js 把 USE_LOCAL_FALLBACK 设为 true，且访问 localhost 时走本地 server.js
@@ -1205,9 +1209,15 @@ const syncManager = {
           seen.add(key);
           return true;
         });
+        // 生活收支/门店随手记：只保留当月记录，历史旧账留在飞书仓库，不拉进工作台
+        let monthFiltered = deduped;
+        if(PULL_CURRENT_MONTH_ONLY.includes(modKey)){
+          const curMonth = today().slice(0,7); // YYYY-MM
+          monthFiltered = deduped.filter(r => (r.date||'').startsWith(curMonth));
+        }
         // 本地新增但还没推送到飞书的记录（没有 record_id），拉取时保留，避免被覆盖
         const localPending = (data[modKey] || []).filter(r => !r.record_id);
-        const remoteKeys = new Set(deduped.map(r => `${r.title}|${r.date||''}|${r.priority||''}|${r.category||''}`));
+        const remoteKeys = new Set(monthFiltered.map(r => `${r.title}|${r.date||''}|${r.priority||''}|${r.category||''}`));
         const pendingKeep = localPending.filter(r => !remoteKeys.has(`${r.title}|${r.date||''}|${r.priority||''}|${r.category||''}`));
         // 打卡模块按「习惯名称」合并：本地打卡数据优先，云端只补齐本地没有的习惯——根治重复行
         if(modKey==='checkin'){
@@ -1225,10 +1235,10 @@ const syncManager = {
           localStorage.setItem(CONFIG.storageKey, JSON.stringify(data));
           return { ok:true, count: merged.length };
         }
-        data[modKey] = [...deduped, ...pendingKeep];
+        data[modKey] = [...monthFiltered, ...pendingKeep];
         const removed = result.records.length - deduped.length;
         if(removed > 0) console.log(`[同步] ${modKey} 去重了 ${removed} 条重复记录`);
-        return { ok: true, count: deduped.length };
+        return { ok: true, count: monthFiltered.length };
       }
       return { ok: false, error: result.error };
     } catch(e) {
@@ -1459,15 +1469,15 @@ function scheduleSync() {
     if(syncManager.isSyncing && _syncRetry < 8) { _syncRetry++; scheduleSync(); return; }
     _syncRetry = 0;
     syncManager.pushAllQuiet();
-  }, 3000); // 3秒后自动推送
+  }, 1500); // 1.5秒防抖后自动推送（缩短等待，记完账尽快写进飞书）
 }
 
-// 轮询拉取：打开页面时立即全量同步一次，之后每 5 小时自动拉一次（页面隐藏时暂停）
-// 5 小时的间隔下云函数调用极少，费用几乎为零；
-// 切走再切回来页面并不会重新加载，所以「切回页面」时补一次同步（限 10 分钟内只补一次），
+// 轮询拉取：打开页面时立即全量同步一次，之后每 2 分钟自动拉一次（页面隐藏时暂停）
+// 2 分钟间隔让另一台设备记的内容很快出现在本机，接近实时；云函数每月免费 100 万次调用，费用几乎为零；
+// 切走再切回来页面并不会重新加载，所以「切回页面」时补一次同步（限 1 分钟内只补一次），
 // 保证随时回到工作台看到的数据都是新鲜的
-const SYNC_POLL_INTERVAL = 18000000;
-const VIS_PULL_GAP = 600000;
+const SYNC_POLL_INTERVAL = 120000;
+const VIS_PULL_GAP = 60000;
 let _pollTimer = null;
 function startSyncPolling() {
   if(!CONFIG.cloudSync) return;
@@ -1493,6 +1503,10 @@ function startSyncPolling() {
         _lastVisPull = Date.now();
         syncManager.pullAllQuiet();
       }
+    });
+    // 直接关闭页面/浏览器时的最后兜底推送（尽力而为），配合 1.5 秒防抖，记完马上关页面也不丢
+    window.addEventListener("pagehide", () => {
+      if(CONFIG.cloudSync && !syncManager.isSyncing) syncManager.pushAllQuiet();
     });
   }
 }

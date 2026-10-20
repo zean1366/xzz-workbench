@@ -728,6 +728,11 @@ async function pushQuickshop(records) {
       const fields = {};
       for (const [localField, feishuField] of Object.entries(fieldMap)) {
         if (!feishuField) continue;
+        // 跳过表中不存在的字段，避免 FieldNameNotFound 导致整批写入失败
+        if (Object.keys(fieldTypes).length && !(feishuField in fieldTypes)) {
+          warnings.push(`${mood} 表无「${feishuField}」字段，已跳过`);
+          continue;
+        }
         const val = rec[localField];
         if (localField === 'customer') {
           // 关联字段写 record_id 数组；文本字段写名字；解析失败则跳过该字段（避免整批写入失败）

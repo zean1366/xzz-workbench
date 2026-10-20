@@ -155,6 +155,69 @@ async function batchDelete(baseToken, tableId, recordIds) {
   return { count };
 }
 
+// ========== 会员缓存与查询（客户姓名 -> record_id） ==========
+const _customerCache = {}; // { customerName: { record_id, expires_at } }
+const CUSTOMER_CACHE_TTL = 30 * 60 * 1000; // 30分钟缓存
+
+async function findCustomerRecordId(baseToken, tableId, customerName) {
+  // 先查缓存
+  const cached = _customerCache[customerName];
+  if (cached && cached.expires_at > Date.now()) {
+    console.log('[CUSTOMER_CACHE] 命中缓存:', customerName);
+    return cached.record_id;
+  }
+
+  // 查会员基础信息表
+  const records = await fetchAllRecords(baseToken, tableId);
+  const match = records.find(r => {
+    const name = r.fields?.['会员姓名'];
+    const nameStr = typeof name === 'string' ? name : (name?.text || name?.[0]?.text || '');
+    return nameStr === customerName;
+  });
+
+  if (match) {
+    _customerCache[customerName] = {
+      record_id: match.record_id,
+      expires_at: Date.now() + CUSTOMER_CACHE_TTL,
+    };
+    console.log('[CUSTOMER] 找到会员:', customerName, '->', match.record_id);
+    return match.record_id;
+  }
+
+  // 没找到，自动新建会员
+  console.log('[CUSTOMER] 未找到会员，自动新建:', customerName);
+  const newRecord = await feishuApi('POST', `/bitable/v1/apps/${baseToken}/tables/${tableId}/records`, {
+    fields: { '会员姓名': customerName },
+  });
+  if (newRecord.code !== 0) {
+    throw new Error(`新建会员失败: ${newRecord.msg || JSON.stringify(newRecord)}`);
+  }
+  const newRecordId = newRecord.data?.record?.record_id;
+  if (newRecordId) {
+    _customerCache[customerName] = {
+      record_id: newRecordId,
+      expires_at: Date.now() + CUSTOMER_CACHE_TTL,
+    };
+  }
+  return newRecordId;
+}
+
+// ========== 字段类型查询（用于判断哪些字段是关联字段） ==========
+const _fieldTypeCache = {}; // { "baseToken:tableId": { 字段名: type } }
+const LINK_FIELD_TYPES = [18, 21]; // 18=单向关联, 21=双向关联
+
+async function getFieldTypes(baseToken, tableId) {
+  const cacheKey = `${baseToken}:${tableId}`;
+  if (_fieldTypeCache[cacheKey]) return _fieldTypeCache[cacheKey];
+  const data = await feishuApi('GET', `/bitable/v1/apps/${baseToken}/tables/${tableId}/fields?page_size=200`);
+  if (data.code !== 0) throw new Error(`获取字段列表失败: ${data.msg || JSON.stringify(data)}`);
+  const map = {};
+  for (const f of (data.data?.items || [])) map[f.field_name] = f.type;
+  _fieldTypeCache[cacheKey] = map;
+  console.log('[FIELDS]', cacheKey, JSON.stringify(map));
+  return map;
+}
+
 // ========== 字段格式转换工具 ==========
 function toSelect(val) { return val || null; }
 function fromSelect(val) {
@@ -203,8 +266,8 @@ function fromAttachment(val) {
 function fromPerson(val) {
   if (!val) return '';
   if (typeof val === 'string') return val;
-  if (Array.isArray(val)) return val.map(v => (v && v.name) || '').filter(Boolean).join('、');
-  if (typeof val === 'object') return val.name || '';
+  if (Array.isArray(val)) return val.map(v => (v && (v.name || v.text || (v.text_arr && v.text_arr[0]))) || '').filter(Boolean).join('、');
+  if (typeof val === 'object') return val.name || val.text || (val.text_arr && val.text_arr[0]) || '';
   return '';
 }
 function fromCheckinLog(val) {
@@ -350,11 +413,13 @@ async function pullQuickshop() {
     '赠送礼品': { date: '日期', customer: '姓名', category: '赠送类别', note: '备注' },
     '会员调理': { customer: '会员姓名', date: '调理日期', sessionNum: '第几次调理', project: '调理项目', focus: '本次调理重点', beforeState: '调理前状态', effect: '调理效果', feedbackWord: '客户反馈原话', giftProject: '赠送项目', note: '备注', photo: '客户实拍' },
   };
-  for (const [mood, tcfg] of Object.entries(moodCfgs)) {
-    if (!tcfg || !tcfg.baseToken) continue;
+  // 6 张子表并行拉取（串行要 40+ 秒会超时，并行 ~8 秒）
+  const moodEntries = Object.entries(moodCfgs).filter(([, tcfg]) => tcfg && tcfg.baseToken);
+  const perMood = await Promise.all(moodEntries.map(async ([mood, tcfg]) => {
     try {
       const records = await fetchAllRecords(tcfg.baseToken, tcfg.tableId);
       const fieldMap = fieldMaps[mood];
+      const out = [];
       for (const r of records) {
         const f = r.fields || {};
         const rec = { id: r.record_id, record_id: r.record_id, mood, updated_at: Date.now() };
@@ -383,12 +448,15 @@ async function pullQuickshop() {
         else if (mood === '门店支出') rec.title = `${(rec.category && rec.category[0]) || '支出'} - ${rec.detail || ''}`;
         else if (mood === '赠送礼品') rec.title = `${rec.customer || '赠送'} ${(rec.category && rec.category[0]) || '礼品'}`;
         else if (mood === '会员调理') rec.title = `${rec.customer || '会员'} ${(rec.project && rec.project[0]) || '调理'}`;
-        allRecords.push(rec);
+        out.push(rec);
       }
+      return out;
     } catch (e) {
       console.error(`拉取 ${mood} 失败:`, e.message);
+      return [];
     }
-  }
+  }));
+  for (const arr of perMood) allRecords.push(...arr);
   return allRecords;
 }
 
@@ -600,7 +668,16 @@ async function pushContent(records) {
 async function pushQuickshop(records) {
   const TABLE_CONFIG = requireTableConfig();
   let created = 0, updated = 0;
+  const warnings = [];
   const moodCfgs = TABLE_CONFIG.quickshop?.moodToTable || {};
+
+  // 定位「会员基础信息」表（用于「客户姓名」单向关联字段）
+  // 该表与各消费子表同库，故优先从 quickshop 子表取 baseToken，避免额外改环境变量
+  const customerCfg = TABLE_CONFIG.customerBase || {};
+  const firstSubCfg = Object.values(moodCfgs).find(c => c && c.baseToken) || {};
+  const memberBaseToken = customerCfg.baseToken || firstSubCfg.baseToken || '';
+  const memberTableId = customerCfg.tableId || 'tblUR8LahmsWXFfy';
+
   const fieldMaps = {
     '会员消费': { customer: '客户姓名', date: '消费日期', amount: '消费金额', project: '调理项目', gift: '赠送项目', therapist: '实际调理人', feedback: '调理效果', note: '备注' },
     '会员储值': { customer: '会员姓名', date: '充值日期', principal: '储值本金', giftAmount: '赠送金额', payMethod: '到账去向', firstTime: '是否首次储值', note: '备注', photo: '充值凭证' },
@@ -621,12 +698,47 @@ async function pushQuickshop(records) {
     const tcfg = moodCfgs[mood];
     const fieldMap = fieldMaps[mood];
     if (!tcfg || !fieldMap) continue;
+
+    // 1) 取该表字段类型，判断「客户姓名」是否为关联字段
+    let fieldTypes = {};
+    try {
+      fieldTypes = await getFieldTypes(tcfg.baseToken, tcfg.tableId);
+    } catch (e) {
+      console.error('[FIELDS] 获取字段类型失败，按文本处理:', e.message);
+    }
+    const customerFeishuField = fieldMap.customer;
+    const isCustomerLink = customerFeishuField && LINK_FIELD_TYPES.includes(fieldTypes[customerFeishuField]);
+
+    // 2) 关联字段：必须在 splitRecords 之前把 record_id 解析好（splitRecords 是同步的）
+    if (isCustomerLink && memberBaseToken && memberTableId) {
+      for (const rec of recs) {
+        if (rec.customer && !rec._customerRecordId) {
+          try {
+            rec._customerRecordId = await findCustomerRecordId(memberBaseToken, memberTableId, rec.customer);
+          } catch (e) {
+            console.error('[CUSTOMER] 解析客户关联失败:', rec.customer, e.message);
+            warnings.push(`${mood} 客户「${rec.customer}」关联解析失败: ${e.message}`);
+          }
+        }
+      }
+    }
+
+    // 3) 构造字段
     const { createBatch, updateBatch } = splitRecords(recs, rec => {
       const fields = {};
       for (const [localField, feishuField] of Object.entries(fieldMap)) {
         if (!feishuField) continue;
         const val = rec[localField];
-        if (['project', 'gift', 'giftProject', 'category'].includes(localField)) {
+        if (localField === 'customer') {
+          // 关联字段写 record_id 数组；文本字段写名字；解析失败则跳过该字段（避免整批写入失败）
+          if (val) {
+            if (isCustomerLink) {
+              if (rec._customerRecordId) fields[feishuField] = [rec._customerRecordId];
+            } else {
+              fields[feishuField] = val;
+            }
+          }
+        } else if (['project', 'gift', 'giftProject', 'category'].includes(localField)) {
           if (val && val.length) fields[feishuField] = toMultiSelect(val);
         } else if (['amount', 'principal', 'giftAmount', 'sessionNum'].includes(localField)) {
           if (val != null) fields[feishuField] = Number(val) || 0;
@@ -642,13 +754,14 @@ async function pushQuickshop(records) {
       }
       return fields;
     });
+
     const up = await batchUpdate(tcfg.baseToken, tcfg.tableId, updateBatch);
     const cr = await batchCreate(tcfg.baseToken, tcfg.tableId, createBatch);
     assignRecordIds(recs, cr.record_ids);
     created += cr.record_ids.length;
     updated += up.count;
   }
-  return { created, updated, records };
+  return { created, updated, records, warnings };
 }
 
 async function pushDiary(records) {
@@ -942,6 +1055,81 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, { ok: true, month, deleted: count });
     } catch (e) {
       console.error('[CLEAR] error:', e.message);
+      return sendJSON(res, 500, { ok: false, error: e.message });
+    }
+  }
+
+  // 诊断接口（只读，绝不写入）：查看 quickshop 各表字段类型、会员表可读性
+  // 用法：?action=diag  /  ?action=diag&name=丁蓉
+  if (action === 'diag') {
+    try {
+      const TABLE_CONFIG = requireTableConfig();
+      const moodCfgs = TABLE_CONFIG.quickshop?.moodToTable || {};
+      const out = { ok: true, quickshop: [], member: null };
+
+      for (const [mood, cfg] of Object.entries(moodCfgs)) {
+        if (!cfg || !cfg.baseToken) continue;
+        const item = { mood, tableId: cfg.tableId };
+        try {
+          item.fields = await getFieldTypes(cfg.baseToken, cfg.tableId);
+          item.customerFieldType = item.fields['客户姓名'] ?? item.fields['会员姓名'] ?? item.fields['姓名'] ?? null;
+          item.customerFieldIsLink = LINK_FIELD_TYPES.includes(item.customerFieldType);
+        } catch (e) { item.error = e.message; }
+        out.quickshop.push(item);
+      }
+
+      const cfgBase = TABLE_CONFIG.customerBase || {};
+      const firstSub = Object.values(moodCfgs).find(c => c && c.baseToken) || {};
+      const mbt = cfgBase.baseToken || firstSub.baseToken;
+      const mtid = cfgBase.tableId || 'tblUR8LahmsWXFfy';
+      if (mbt && mtid) {
+        const member = { tableId: mtid };
+        try {
+          member.fields = await getFieldTypes(mbt, mtid);
+          const recs = await fetchAllRecords(mbt, mtid);
+          member.count = recs.length;
+          member.sample = recs.slice(0, 5).map(r => {
+            const n = r.fields?.['会员姓名'];
+            return typeof n === 'string' ? n : (n?.text || '');
+          });
+          if (query.name) {
+            const wanted = query.name;
+            const hit = recs.find(r => {
+              const n = r.fields?.['会员姓名'];
+              const s = typeof n === 'string' ? n : (n?.text || '');
+              return s === wanted;
+            });
+            member.lookup = { name: wanted, record_id: hit ? hit.record_id : null, existed: !!hit };
+          }
+        } catch (e) { member.error = e.message; }
+        out.member = member;
+      }
+      return sendJSON(res, 200, out);
+    } catch (e) {
+      return sendJSON(res, 500, { ok: false, error: e.message });
+    }
+  }
+
+  // 通用删除接口：action=delete&module=xxx&record_id=xxx
+  if (action === 'delete' && module) {
+    const recordId = query.record_id || '';
+    if (!recordId) return sendJSON(res, 400, { ok: false, error: '缺少 record_id 参数' });
+    const TABLE_CONFIG = requireTableConfig();
+    let cfg = TABLE_CONFIG[module];
+    // quickshop 特殊处理：需要根据 mood 找子表
+    if (module === 'quickshop') {
+      const mood = query.mood || '';
+      if (!mood) return sendJSON(res, 400, { ok: false, error: 'quickshop 模块需要 mood 参数' });
+      cfg = TABLE_CONFIG.quickshop?.moodToTable?.[mood];
+      if (!cfg) return sendJSON(res, 400, { ok: false, error: `未配置的记录类型: ${mood}` });
+    }
+    if (!cfg || !cfg.baseToken || !cfg.tableId) return sendJSON(res, 400, { ok: false, error: `未配置的模块: ${module}` });
+    try {
+      const { count } = await batchDelete(cfg.baseToken, cfg.tableId, [recordId]);
+      console.log(`[DELETE] ${module} record_id=${recordId}: 删除 ${count} 条`);
+      return sendJSON(res, 200, { ok: true, module, record_id: recordId, deleted: count });
+    } catch (e) {
+      console.error('[DELETE] error:', e.message);
       return sendJSON(res, 500, { ok: false, error: e.message });
     }
   }

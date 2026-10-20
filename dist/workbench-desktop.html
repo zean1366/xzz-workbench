@@ -2800,7 +2800,25 @@ function confirmDelete(key,id){ const item=(data[key]||[]).find(i=>i.id==id); if
   const close=()=>overlay.remove();
   overlay.onclick=e=>{ if(e.target===overlay) close(); };
   overlay.querySelector("#c-cancel").onclick=close;
-  overlay.querySelector("#c-ok").onclick=()=>{ data[key]=data[key].filter(i=>i.id!=id); persist(); close(); };
+  overlay.querySelector("#c-ok").onclick=async()=>{
+    // 先调飞书删除（如果有 record_id）
+    if(item.record_id){
+      const moduleMap={ todo:'todo', money:'money', period:'period', checkin:'checkin', content:'content', weeklylearn:'weeklylearn', quickshop:'quickshop', diary:'diary' };
+      const moduleName=moduleMap[key];
+      if(moduleName){
+        try{
+          const moodParam=key==='quickshop'&&item.mood?`&mood=${encodeURIComponent(item.mood)}`:'';
+          const url=`${SCF_API_BASE}?action=delete&module=${moduleName}&record_id=${encodeURIComponent(item.record_id)}${moodParam}`;
+          const res=await fetch(url);
+          const result=await res.json();
+          if(!result.ok) console.error('[DELETE] 飞书删除失败:',result.error);
+          else console.log('[DELETE] 飞书删除成功:',item.record_id);
+        }catch(e){ console.error('[DELETE] 删除请求失败:',e.message); }
+      }
+    }
+    // 再删本地
+    data[key]=data[key].filter(i=>i.id!=id); persist(); close();
+  };
 }
 
 /* ---------- router / sidebar ---------- */
